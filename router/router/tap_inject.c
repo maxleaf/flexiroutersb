@@ -14,6 +14,17 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2019 flexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - enable VxLan decapsulation before packets are pushed into TAP
+ *   - hide internally used loopback interfaces from TAP/Linux
+ */
+
+#ifndef FLEXIWAN_FIX
+#define FLEXIWAN_FIX
+#endif
+
 #include "tap_inject.h"
 
 #include <vnet/mfib/mfib_table.h>
@@ -21,6 +32,10 @@
 #include <vnet/ip/lookup.h>
 #include <vnet/fib/fib.h>
 #include <vnet/osi/osi.h>
+
+#ifdef FLEXIWAN_FIX
+#include <vnet/udp/udp.h>
+#endif
 
 static tap_inject_main_t tap_inject_main;
 extern dpo_type_t tap_inject_dpo_type;
@@ -136,11 +151,29 @@ tap_inject_enable (void)
 
   ip4_register_protocol (IP_PROTOCOL_OSPF, im->tx_node_index);
   ip4_register_protocol (IP_PROTOCOL_TCP, im->tx_node_index);
+#ifdef FLEXIWAN_FIX
+  // Issue: all UDP traffic is captured by tap-inject before VxLan node intercepts it.
+  //        as a result VxLAN tunnel that sits on BVI bridge with TAP interface does not work.
+  // Solution: comment out tap-inject registration on UDP traffic. This allows traffic to reach
+  //           VxLAN node. UDP traffic designated for TAP will reach udp-local node and will be dropped.
+  //           To avoid drop and to pass it to tap-inject, the punt feature is used.
+  //           Punt arc is used to redirect traffic that was supposed to be dropped into various nodes
+  //           that are registered Punt feature. Registration is performed by adding tap-inject into
+  //           ip4-punt arc.
+  udp_punt_unknown(vm, 1, 1);
+  vnet_feature_enable_disable ("ip4-punt", "tap-inject-tx", 0, 1, 0, 0);
+#else
   ip4_register_protocol (IP_PROTOCOL_UDP, im->tx_node_index);
+#endif /* FLEXIWAN_FIX */
 
   ip6_register_protocol (IP_PROTOCOL_OSPF, im->tx_node_index);
   ip6_register_protocol (IP_PROTOCOL_TCP, im->tx_node_index);
+#ifdef FLEXIWAN_FIX
+  udp_punt_unknown(vm, 0, 1);
+  vnet_feature_enable_disable ("ip6-punt", "ip6-tap-inject-tx", 0, 1, 0, 0);
+#else
   ip6_register_protocol (IP_PROTOCOL_UDP, im->tx_node_index);
+#endif /* FLEXIWAN_FIX */
   /* Registering ISIS to OSI node. */
   osi_register_input_protocol (OSI_PROTOCOL_isis, im->tx_node_index);
 
@@ -227,6 +260,22 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 hw_if_index,
     return 0;
 
   tap_inject_enable ();
+
+#ifdef FLEXIWAN_FIX
+  // As of Dec-2019 we use loop0-bridge-l2gre_ipsec_tunnel and loop1-bridge-vxlan_tunnel 
+  // in order to enable NAT 1:1. The loop1 interface should not be exposed to Linux/user,
+  // as it is for internal use only, and no ping/netplan etc should be enabled.
+  // Therefore we hide it from user by escaping it in this function.
+  // The fwagent enforces odd instance numbers for loop1 interfaces,
+  // e.g. loop5, loop7, loop9 etc, and even indexes for loop0 interfaces.
+  // See usage of create_loopback_instance() function in fwagent.
+  {
+      vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_main, hw_if_index);
+      if (hw->name != NULL  &&  clib_memcmp(hw->name, "loop", 4) == 0  &&
+          hw->dev_instance % 2 == 1)
+        return 0;
+  }
+#endif /* FLEXIWAN_FIX */
 
   if (add)
     vec_add1 (im->interfaces_to_enable, hw_if_index);

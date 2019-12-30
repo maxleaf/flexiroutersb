@@ -14,9 +14,24 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2019 flexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - add support in fragmented packets designated for TAP
+ *   - fix b->current to enable packets received on L2GRE to be pushed into TAP
+ *   - enable VxLan decapsulation before packets are pushed into TAP
+ */
+
+#ifndef FLEXIWAN_FIX
+#define FLEXIWAN_FIX
+#endif
+
 #include "tap_inject.h"
 
 #include <netinet/in.h>
+#ifdef FLEXIWAN_FIX
+#include <sys/uio.h>
+#endif /* FLEXIWAN_FIX */
 #include <vnet/ethernet/arp_packet.h>
 
 vlib_node_registration_t tap_inject_rx_node;
@@ -33,6 +48,67 @@ enum {
  */
 dpo_type_t tap_inject_dpo_type;
 
+#ifdef FLEXIWAN_FIX
+static inline void
+tap_inject_tap_send_buffer (vlib_main_t * vm, int fd, vlib_buffer_t * b)
+{
+  struct iovec iov;
+  ssize_t n_bytes;
+  u8 *    reassembled_buffer = 0;
+
+  iov.iov_base = vlib_buffer_get_current (b);
+  iov.iov_len = b->current_length;
+  
+  // Handle fragmented packet:
+  // Calculate total lenght, allocate buffer and copy all fragments into it.
+  // TODO: use static buffer per thread.
+  /* Handle fragmented packet */
+  if (b->flags & VLIB_BUFFER_NEXT_PRESENT)
+  {
+    u16             total_length = 0;
+    vlib_buffer_t * b_curr = b;
+    u8 *            p_buff;
+
+    while (b_curr->flags & VLIB_BUFFER_NEXT_PRESENT)
+    {
+      total_length += b_curr->current_length;
+      b_curr = vlib_get_buffer (vm, b_curr->next_buffer);
+    }
+    total_length += b_curr->current_length;
+
+    reassembled_buffer = clib_mem_alloc (total_length);
+    if (reassembled_buffer == 0)
+    {
+      clib_warning ("clib_mem_alloc (total_length=%d)failed", total_length);
+      return;
+    }
+
+    b_curr = b;
+    p_buff = reassembled_buffer;
+    while (p_buff < (reassembled_buffer + total_length))
+    {
+      clib_memcpy_fast(p_buff, b_curr->data + b_curr->current_data, b_curr->current_length);
+      p_buff += b_curr->current_length;
+      b_curr = vlib_get_buffer (vm, b_curr->next_buffer);
+    }
+
+    iov.iov_base = reassembled_buffer;
+    iov.iov_len  = total_length;
+  }
+
+  n_bytes = writev (fd, &iov, 1);
+
+  if (n_bytes < 0)
+    clib_warning ("writev failed");
+  // Handle fragmented packet
+  //else if (n_bytes < b->current_length || b->flags & VLIB_BUFFER_NEXT_PRESENT)
+  else if (n_bytes < b->current_length)
+    clib_warning ("buffer truncated");
+
+  if (reassembled_buffer)
+    clib_mem_free(reassembled_buffer);
+}
+#else
 static inline void
 tap_inject_tap_send_buffer (int fd, vlib_buffer_t * b)
 {
@@ -49,6 +125,7 @@ tap_inject_tap_send_buffer (int fd, vlib_buffer_t * b)
   else if (n_bytes < b->current_length || b->flags & VLIB_BUFFER_NEXT_PRESENT)
     clib_warning ("buffer truncated");
 }
+#endif /* FLEXIWAN_FIX */
 
 static uword
 tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
@@ -69,9 +146,16 @@ tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
         continue;
 
       /* Re-wind the buffer to the start of the Ethernet header. */
-      vlib_buffer_advance (b, -b->current_data);
+#ifdef FLEXIWAN_FIX
+      // The '-b->current_data' assumes that packet is regular L2-L3-APP packet.
+      // This is not true in case of l2gre.
+      // The packet that comes out of L2-GRE Tunnel (ipsec-gre node)
+      // has L2-IPSEC_ESP-L2-L3-APP structure
+      // vlib_buffer_advance (b, -b->current_data);
+      vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 
-      tap_inject_tap_send_buffer (fd, b);
+      tap_inject_tap_send_buffer (vm, fd, b);
+#endif /* FLEXIWAN_FIX */
     }
 
   vlib_buffer_free (vm, pkts, f->n_vectors);
@@ -85,6 +169,32 @@ VLIB_REGISTER_NODE (tap_inject_tx_node) = {
   .type = VLIB_NODE_TYPE_INTERNAL,
 };
 
+#ifdef FLEXIWAN_FIX
+VLIB_NODE_FUNCTION_MULTIARCH (tap_inject_tx_node,
+                              tap_inject_tx);
+
+VNET_FEATURE_INIT (tap_inject_tx_node, static) = {
+  .arc_name = "ip4-punt",
+  .node_name = "tap-inject-tx",
+  .runs_before = VNET_FEATURES("error-punt"),
+};
+
+VLIB_REGISTER_NODE (ip6_tap_inject_tx_node) = {
+  .function = tap_inject_tx,
+  .name = "ip6-tap-inject-tx",
+  .vector_size = sizeof (u32),
+  .type = VLIB_NODE_TYPE_INTERNAL,
+};
+
+VLIB_NODE_FUNCTION_MULTIARCH (ip6_tap_inject_tx_node,
+                              tap_inject_tx);
+
+VNET_FEATURE_INIT (ip6_tap_inject_tx_node, static) = {
+  .arc_name = "ip6-punt",
+  .node_name = "ip6-tap-inject-tx",
+  .runs_before = VNET_FEATURES("error-punt"),
+};
+#endif /* FLEXIWAN_FIX */
 
 static uword
 tap_inject_neighbor (vlib_main_t * vm,
@@ -115,10 +225,16 @@ tap_inject_neighbor (vlib_main_t * vm,
         }
 
       /* Re-wind the buffer to the start of the Ethernet header. */
-      vlib_buffer_advance (b, -b->current_data);
+#ifdef FLEXIWAN_FIX
+      // The '-b->current_data' assumes that packet is regular L2-L3-APP packet.
+      // This is not true in case of l2gre.
+      // The packet that comes out of L2-GRE Tunnel (ipsec-gre node)
+      // has L2-IPSEC_ESP-L2-L3-APP structure
+      // vlib_buffer_advance (b, -b->current_data);
+      vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 
-      tap_inject_tap_send_buffer (fd, b);
-
+      tap_inject_tap_send_buffer (vm, fd, b);
+#endif /* FLEXIWAN_FIX */
       /* Send the buffer to a neighbor node too? */
       {
         ethernet_header_t * eth = vlib_buffer_get_current (b);
