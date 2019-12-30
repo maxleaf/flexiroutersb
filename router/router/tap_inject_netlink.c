@@ -14,6 +14,17 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2019 flexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - add missing functionality: reflect route deletion in Linux into VPP FIB
+ *     (handle the RTM_DELROUTE Netlink message).
+ */
+
+#ifndef FLEXIWAN_FIX
+#define FLEXIWAN_FIX
+#endif
+
 #include <librtnl/netns.h>
 #include <vlibmemory/api.h>
 #include <vnet/ip/ip6_neighbor.h>
@@ -184,12 +195,31 @@ add_del_route (ns_route_t * r, int is_del)
       get_mpls_label_stack(r->encap, stack);
       memset (&nh, 0, sizeof (nh));
       clib_memcpy (&nh.ip4, r->gateway, sizeof (nh.ip4));
+#ifdef FLEXIWAN_FIX
+      if(*stack == 0) {
+          if (is_del) {
+              fib_table_entry_path_remove (0, &prefix, FIB_SOURCE_API,
+                                           prefix.fp_proto,
+                                           &nh, sw_if_index, 0,
+                                           0 /* weight */,
+                                           FIB_ROUTE_PATH_FLAG_NONE);
+            }
+          else {
+              fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
+                                        FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
+                                        &nh, sw_if_index, 0,
+                                        0 /* weight */, NULL,
+                                        FIB_ROUTE_PATH_FLAG_NONE);
+            }
+        }
+#else
       if(*stack == 0)
         fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
                                   FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
                                   &nh, sw_if_index, 0,
                                   0 /* weight */, NULL,
                                   FIB_ROUTE_PATH_FLAG_NONE);
+#endif /* FLEXIWAN_FIX */
       else {
         fib_route_path_t *rpaths = NULL, rpath;
         memset(&rpath, 0, sizeof(rpath));
@@ -202,11 +232,27 @@ add_del_route (ns_route_t * r, int is_del)
           vec_add1(rpath.frp_label_stack, fib_label);
         }
         vec_add1(rpaths, rpath);
+#ifdef FLEXIWAN_FIX
+        if (is_del) {
+            fib_table_entry_path_remove2(0,
+                                      &prefix,
+                                      FIB_SOURCE_API,
+                                      rpaths);
+          }
+        else {
+            fib_table_entry_path_add2(0,
+                                      &prefix,
+                                      FIB_SOURCE_API,
+                                      FIB_ENTRY_FLAG_NONE,
+                                      rpaths);
+          }
+#else
         fib_table_entry_path_add2(0,
                                   &prefix,
                                   FIB_SOURCE_API,
                                   FIB_ENTRY_FLAG_NONE,
                                   rpaths);
+#endif /* FLEXIWAN_FIX */
       }
     }
   else if (r->rtm.rtm_family == AF_INET6)
@@ -219,11 +265,28 @@ add_del_route (ns_route_t * r, int is_del)
       clib_memcpy (&prefix.fp_addr.ip6, r->dst, sizeof (prefix.fp_addr.ip6));
       memset (&nh, 0, sizeof (nh));
       clib_memcpy (&nh.ip6, r->gateway, sizeof (nh.ip6));
+#ifdef FLEXIWAN_FIX
+      if (is_del) {
+          fib_table_entry_path_remove (0, &prefix, FIB_SOURCE_API,
+                                    prefix.fp_proto,
+                                    &nh, sw_if_index, 0,
+                                    0 /* weight */,
+                                    FIB_ROUTE_PATH_FLAG_NONE);
+        }
+      else {
+          fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
+                                    FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
+                                    &nh, sw_if_index, 0,
+                                    0 /* weight */, NULL,
+                                    FIB_ROUTE_PATH_FLAG_NONE);
+        }
+#else
       fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
                                 FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
                                 &nh, sw_if_index, 0,
                                 0 /* weight */, NULL,
                                 FIB_ROUTE_PATH_FLAG_NONE);
+#endif /* FLEXIWAN_FIX */
     }
   else if (r->rtm.rtm_family == AF_MPLS)
     {
@@ -244,11 +307,27 @@ add_del_route (ns_route_t * r, int is_del)
       rpath.frp_fib_index = 0;
       rpath.frp_sw_if_index = sw_if_index;
       vec_add1(rpaths, rpath);
+#ifdef FLEXIWAN_FIX
+      if (is_del) {
+          fib_table_entry_path_remove2(0,
+                                    &prefix,
+                                    FIB_SOURCE_API,
+                                    rpaths);
+        }
+      else {
+          fib_table_entry_path_add2(0,
+                                    &prefix,
+                                    FIB_SOURCE_API,
+                                    FIB_ENTRY_FLAG_NONE,
+                                    rpaths);
+        }
+#else
       fib_table_entry_path_add2(0,
                                 &prefix,
                                 FIB_SOURCE_API,
                                 FIB_ENTRY_FLAG_NONE,
                                 rpaths);
+#endif /* FLEXIWAN_FIX */
     }
 }
 
