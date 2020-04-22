@@ -172,16 +172,11 @@ get_mpls_label_stack(struct mpls_label *addr, u32* l)
 }
 
 static void
-add_del_route (ns_route_t * r, int is_del)
+add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_len,
+             u8 *dst, struct mpls_label *encap, u8 *gateway, struct rtvia *via,
+             int is_del)
 {
-  u32 sw_if_index;
-
-  sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (r->oif);
-
-  if (sw_if_index == ~0)
-    return;
-
-  if (r->rtm.rtm_family == AF_INET)
+  if (rtm_family == AF_INET)
     {
       u32 stack[MPLS_STACK_DEPTH] = {0};
 
@@ -189,13 +184,13 @@ add_del_route (ns_route_t * r, int is_del)
       ip46_address_t nh;
 
       memset (&prefix, 0, sizeof (prefix));
-      prefix.fp_len = r->rtm.rtm_dst_len;
+      prefix.fp_len = rtm_dst_len;
       prefix.fp_proto = FIB_PROTOCOL_IP4;
-      clib_memcpy (&prefix.fp_addr.ip4, r->dst, sizeof (prefix.fp_addr.ip4));
-      get_mpls_label_stack(r->encap, stack);
+      clib_memcpy (&prefix.fp_addr.ip4, dst, sizeof (prefix.fp_addr.ip4));
+      get_mpls_label_stack(encap, stack);
+
       memset (&nh, 0, sizeof (nh));
-      clib_memcpy (&nh.ip4, r->gateway, sizeof (nh.ip4));
-#ifdef FLEXIWAN_FIX
+      clib_memcpy (&nh.ip4, gateway, sizeof (nh.ip4));
       if(*stack == 0) {
           if (is_del) {
               fib_table_entry_path_remove (0, &prefix, FIB_SOURCE_API,
@@ -212,27 +207,18 @@ add_del_route (ns_route_t * r, int is_del)
                                         FIB_ROUTE_PATH_FLAG_NONE);
             }
         }
-#else
-      if(*stack == 0)
-        fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
-                                  FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
-                                  &nh, sw_if_index, 0,
-                                  0 /* weight */, NULL,
-                                  FIB_ROUTE_PATH_FLAG_NONE);
-#endif /* FLEXIWAN_FIX */
       else {
         fib_route_path_t *rpaths = NULL, rpath;
         memset(&rpath, 0, sizeof(rpath));
         rpath.frp_weight = 1;
         rpath.frp_proto = DPO_PROTO_IP4;
-        clib_memcpy(&rpath.frp_addr.ip4, r->gateway, sizeof(rpath.frp_addr.ip4));
+        clib_memcpy(&rpath.frp_addr.ip4, gateway, sizeof(rpath.frp_addr.ip4));
         rpath.frp_sw_if_index = sw_if_index;
         for(int i = 0; i < MPLS_STACK_DEPTH && stack[i] != 0; i++) {
           fib_mpls_label_t fib_label = {stack[i],0,0,0};
           vec_add1(rpath.frp_label_stack, fib_label);
         }
         vec_add1(rpaths, rpath);
-#ifdef FLEXIWAN_FIX
         if (is_del) {
             fib_table_entry_path_remove2(0,
                                       &prefix,
@@ -246,26 +232,18 @@ add_del_route (ns_route_t * r, int is_del)
                                       FIB_ENTRY_FLAG_NONE,
                                       rpaths);
           }
-#else
-        fib_table_entry_path_add2(0,
-                                  &prefix,
-                                  FIB_SOURCE_API,
-                                  FIB_ENTRY_FLAG_NONE,
-                                  rpaths);
-#endif /* FLEXIWAN_FIX */
       }
     }
-  else if (r->rtm.rtm_family == AF_INET6)
+  else if (rtm_family == AF_INET6)
     {
       fib_prefix_t prefix;
       ip46_address_t nh;
       memset (&prefix, 0, sizeof (prefix));
-      prefix.fp_len = r->rtm.rtm_dst_len;
+      prefix.fp_len = rtm_dst_len;
       prefix.fp_proto = FIB_PROTOCOL_IP6;
-      clib_memcpy (&prefix.fp_addr.ip6, r->dst, sizeof (prefix.fp_addr.ip6));
+      clib_memcpy (&prefix.fp_addr.ip6, dst, sizeof (prefix.fp_addr.ip6));
       memset (&nh, 0, sizeof (nh));
-      clib_memcpy (&nh.ip6, r->gateway, sizeof (nh.ip6));
-#ifdef FLEXIWAN_FIX
+      clib_memcpy (&nh.ip6, gateway, sizeof (nh.ip6));
       if (is_del) {
           fib_table_entry_path_remove (0, &prefix, FIB_SOURCE_API,
                                     prefix.fp_proto,
@@ -280,19 +258,11 @@ add_del_route (ns_route_t * r, int is_del)
                                     0 /* weight */, NULL,
                                     FIB_ROUTE_PATH_FLAG_NONE);
         }
-#else
-      fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
-                                FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
-                                &nh, sw_if_index, 0,
-                                0 /* weight */, NULL,
-                                FIB_ROUTE_PATH_FLAG_NONE);
-#endif /* FLEXIWAN_FIX */
     }
-  else if (r->rtm.rtm_family == AF_MPLS)
+  else if (rtm_family == AF_MPLS)
     {
       u32 dst_label;
-      get_mpls_label_stack((struct mpls_label*) r->dst, &dst_label);
-      struct rtvia *via = (struct rtvia*) r->via;
+      get_mpls_label_stack((struct mpls_label*) dst, &dst_label);
       fib_prefix_t prefix;
       fib_route_path_t *rpaths = NULL, rpath;
       memset (&prefix, 0, sizeof (prefix));
@@ -307,7 +277,6 @@ add_del_route (ns_route_t * r, int is_del)
       rpath.frp_fib_index = 0;
       rpath.frp_sw_if_index = sw_if_index;
       vec_add1(rpaths, rpath);
-#ifdef FLEXIWAN_FIX
       if (is_del) {
           fib_table_entry_path_remove2(0,
                                     &prefix,
@@ -321,16 +290,37 @@ add_del_route (ns_route_t * r, int is_del)
                                     FIB_ENTRY_FLAG_NONE,
                                     rpaths);
         }
-#else
-      fib_table_entry_path_add2(0,
-                                &prefix,
-                                FIB_SOURCE_API,
-                                FIB_ENTRY_FLAG_NONE,
-                                rpaths);
-#endif /* FLEXIWAN_FIX */
     }
 }
 
+static void
+add_del_route (ns_route_t * r, int is_del)
+{
+  u32 sw_if_index = 0;
+
+  if (r->multipath.nhops_count > 0)
+    {
+      for (int nh = 0; nh < r->multipath.nhops_count; nh++)
+        {
+          ns_next_hop_t *nhopp = &r->multipath.nhops[nh];
+          sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (nhopp->oif);
+
+          add_del_fib(sw_if_index, r->rtm.rtm_family,
+                      r->rtm.rtm_dst_len, r->dst,
+                      r->encap, nhopp->gateway,
+                      (struct rtvia *)r->via, is_del);
+        }
+    }
+  else
+    {
+      sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (r->oif);
+
+      add_del_fib(sw_if_index, r->rtm.rtm_family,
+                  r->rtm.rtm_dst_len, r->dst,
+                  r->encap, r->gateway,
+                  (struct rtvia *)r->via, is_del);
+    }
+}
 
 static void
 netns_notify_cb (void * obj, netns_type_t type, u32 flags, uword opaque)

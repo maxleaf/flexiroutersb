@@ -74,7 +74,8 @@ u8 *format_ns_link (u8 *s, va_list *args)
   _(RTA_TABLE, table, 0)                        \
   _(RTA_PRIORITY, priority, 0)                  \
   _(RTA_CACHEINFO, cacheinfo, 0)                \
-  _(RTA_ENCAP, encap, 1)
+  _(RTA_ENCAP, encap, 1)                        \
+  _(RTA_MULTIPATH, multipath, 1)
 
 static rtnl_mapping_t ns_routemap[] = {
 #define _(t, e, u)                              \
@@ -277,6 +278,33 @@ rtnl_entry_match(void *entry,
   return 1;
 }
 
+static void
+rtnl_multipath_set(struct rtnexthop *nhptr, int rtnhp_len, ns_multipath_t *multipath)
+{
+  int attrlen = 0;
+
+  while (rtnhp_len > 0)
+    {
+      ns_next_hop_t *nhopp = &multipath->nhops[multipath->nhops_count];
+      nhopp->weight = nhptr->rtnh_hops + 1;
+      attrlen = nhptr->rtnh_len;
+      nhopp->oif = nhptr->rtnh_ifindex;
+
+      if (attrlen == 0)
+        break;
+
+      struct rtattr *attr = RTNH_DATA(nhptr);
+
+      if (attr->rta_type == RTA_GATEWAY) {
+          memcpy(nhopp->gateway, RTA_DATA(attr), RTA_PAYLOAD(attr));
+        }
+
+      rtnhp_len -= NLMSG_ALIGN(attrlen);
+      nhptr = RTNH_NEXT(nhptr);
+      multipath->nhops_count++;
+    }
+}
+
 static int
 rtnl_entry_set(void *entry,
                struct rtattr *rtas[],
@@ -296,7 +324,11 @@ rtnl_entry_set(void *entry,
       }
       memcpy(entry + map->offset, RTA_DATA(rta), map->size);
       memset(entry + map->offset + map->size, 0, 0);
-    } else if (rta) {
+    }
+    else if (map->type == RTA_MULTIPATH && rta) {
+        rtnl_multipath_set(RTA_DATA(rta), RTA_PAYLOAD(rta), entry + map->offset);
+      }
+    else if (rta) {
       if (RTA_PAYLOAD(rta) > map->size) {
         clib_warning("rta (type=%d len=%d) too long (max %d)", rta->rta_type, rta->rta_len, map->size);
         return -1;

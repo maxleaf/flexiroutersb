@@ -29,6 +29,7 @@
 #include <linux/mpls.h>
 /*so far depth is fixed, looking into ways to be dynamic*/
 #define MPLS_STACK_DEPTH 7
+#define MULTIPATH_NEXTHOP_MAX 20
 
 typedef struct {
   struct ifinfomsg ifi;
@@ -43,6 +44,17 @@ typedef struct {
 } ns_link_t;
 
 typedef struct {
+  u8 weight;
+  u32 oif;
+  u8 gateway[16];
+} ns_next_hop_t;
+
+typedef struct {
+  ns_next_hop_t nhops[MULTIPATH_NEXTHOP_MAX];
+  u8 nhops_count;
+} ns_multipath_t;
+
+typedef struct {
   struct rtmsg rtm;
   u8 dst[16];
   u8 src[16];
@@ -55,6 +67,7 @@ typedef struct {
   u32 priority;
   struct rta_cacheinfo cacheinfo;
   struct mpls_label encap[MPLS_STACK_DEPTH];
+  ns_multipath_t multipath;
   f64 last_updated;
 } ns_route_t;
 
