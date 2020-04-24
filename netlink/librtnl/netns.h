@@ -44,17 +44,6 @@ typedef struct {
 } ns_link_t;
 
 typedef struct {
-  u8 weight;
-  u32 oif;
-  u8 gateway[16];
-} ns_next_hop_t;
-
-typedef struct {
-  ns_next_hop_t nhops[MULTIPATH_NEXTHOP_MAX];
-  u8 nhops_count;
-} ns_multipath_t;
-
-typedef struct {
   struct rtnexthop nhops[MULTIPATH_NEXTHOP_MAX];
   int length;
 } multipath_t;

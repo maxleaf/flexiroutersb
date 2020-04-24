@@ -294,16 +294,19 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 }
 
 static void
-rtnl_multipath_set(struct rtnexthop *nhptr, int rtnhp_len, ns_multipath_t *multipath, int max_size)
+add_del_multipath_fib(ns_route_t * r, int is_del)
 {
+  u32 sw_if_index = 0;
   int attrlen = 0;
+  u32 oif = 0;
+  u8 gateway[16];
+  struct rtnexthop *nhptr = r->multipath.nhops;
+  int rtnhp_len = r->multipath.length;
 
-  while (rtnhp_len > 0 && multipath->nhops_count < max_size)
+  while (rtnhp_len > 0)
     {
-      ns_next_hop_t *nhopp = &multipath->nhops[multipath->nhops_count];
-      nhopp->weight = nhptr->rtnh_hops + 1;
       attrlen = nhptr->rtnh_len;
-      nhopp->oif = nhptr->rtnh_ifindex;
+      oif = nhptr->rtnh_ifindex;
 
       if (attrlen == 0)
         break;
@@ -311,12 +314,18 @@ rtnl_multipath_set(struct rtnexthop *nhptr, int rtnhp_len, ns_multipath_t *multi
       struct rtattr *attr = RTNH_DATA(nhptr);
 
       if (attr->rta_type == RTA_GATEWAY) {
-          memcpy(nhopp->gateway, RTA_DATA(attr), RTA_PAYLOAD(attr));
+          memcpy(gateway, RTA_DATA(attr), RTA_PAYLOAD(attr));
         }
+
+      sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (oif);
+
+      add_del_fib(sw_if_index, r->rtm.rtm_family,
+                  r->rtm.rtm_dst_len, r->dst,
+                  r->encap, gateway,
+                  (struct rtvia *)r->via, is_del);
 
       rtnhp_len -= NLMSG_ALIGN(attrlen);
       nhptr = RTNH_NEXT(nhptr);
-      multipath->nhops_count++;
     }
 }
 
@@ -324,24 +333,10 @@ static void
 add_del_route (ns_route_t * r, int is_del)
 {
   u32 sw_if_index = 0;
-  ns_multipath_t multipath;
-  memset(&multipath, 0, sizeof(ns_multipath_t));
 
   if (r->multipath.length > 0)
     {
-      rtnl_multipath_set(r->multipath.nhops, r->multipath.length,
-                         &multipath, MULTIPATH_NEXTHOP_MAX);
-
-      for (int nh = 0; nh < multipath.nhops_count; nh++)
-        {
-          ns_next_hop_t *nhopp = &multipath.nhops[nh];
-          sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (nhopp->oif);
-
-          add_del_fib(sw_if_index, r->rtm.rtm_family,
-                      r->rtm.rtm_dst_len, r->dst,
-                      r->encap, nhopp->gateway,
-                      (struct rtvia *)r->via, is_del);
-        }
+      add_del_multipath_fib(r, is_del);
     }
   else
     {
