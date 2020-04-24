@@ -66,16 +66,16 @@ u8 *format_ns_link (u8 *s, va_list *args)
 #define ns_foreach_rta                          \
   _(RTA_DST, dst, 1)                            \
   _(RTA_SRC, src, 1)                            \
-  _(RTA_VIA, via, 1)                            \
-  _(RTA_GATEWAY, gateway, 1)                    \
-  _(RTA_IIF, iif, 1)                            \
-  _(RTA_OIF, oif, 1)                            \
+  _(RTA_VIA, via, 0)                            \
+  _(RTA_GATEWAY, gateway, 0)                    \
+  _(RTA_IIF, iif, 0)                            \
+  _(RTA_OIF, oif, 0)                            \
   _(RTA_PREFSRC, prefsrc, 0)                    \
   _(RTA_TABLE, table, 0)                        \
   _(RTA_PRIORITY, priority, 0)                  \
   _(RTA_CACHEINFO, cacheinfo, 0)                \
   _(RTA_ENCAP, encap, 1)                        \
-  _(RTA_MULTIPATH, multipath, 1)
+  _(RTA_MULTIPATH, multipath, 0)
 
 static rtnl_mapping_t ns_routemap[] = {
 #define _(t, e, u)                              \
@@ -457,9 +457,19 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
       return -1;
+
     pool_put(ns->netns.routes, route);
     netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
     return 0;
+  }
+
+  if (hdr->nlmsg_type == RTM_NEWROUTE &&
+      hdr->nlmsg_flags & NLM_F_REPLACE) {
+    if (!route)
+      return -1;
+
+    netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+    memset(route, 0, sizeof(*route));
   }
 
   if (!route) {
