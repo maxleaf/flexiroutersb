@@ -66,15 +66,16 @@ u8 *format_ns_link (u8 *s, va_list *args)
 #define ns_foreach_rta                          \
   _(RTA_DST, dst, 1)                            \
   _(RTA_SRC, src, 1)                            \
-  _(RTA_VIA, via, 1)                            \
-  _(RTA_GATEWAY, gateway, 1)                    \
-  _(RTA_IIF, iif, 1)                            \
-  _(RTA_OIF, oif, 1)                            \
+  _(RTA_VIA, via, 0)                            \
+  _(RTA_GATEWAY, gateway, 0)                    \
+  _(RTA_IIF, iif, 0)                            \
+  _(RTA_OIF, oif, 0)                            \
   _(RTA_PREFSRC, prefsrc, 0)                    \
   _(RTA_TABLE, table, 0)                        \
   _(RTA_PRIORITY, priority, 0)                  \
   _(RTA_CACHEINFO, cacheinfo, 0)                \
-  _(RTA_ENCAP, encap, 1)
+  _(RTA_ENCAP, encap, 1)                        \
+  _(RTA_MULTIPATH, multipath, 0)
 
 static rtnl_mapping_t ns_routemap[] = {
 #define _(t, e, u)                              \
@@ -263,6 +264,15 @@ rtnl_entry_match(void *entry,
     if (!map->unique)
       continue;
 
+    if (map->type == RTA_MULTIPATH && rta) {
+        multipath_t *multipath = (multipath_t*)(entry + map->offset);
+
+        if (memcmp(RTA_DATA(rta), multipath->nhops, rta_len))
+          return 0;
+        else
+          return 1;
+      }
+
     if (rta && RTA_PAYLOAD(rta) > map->size) {
       clib_warning("rta (type=%d len=%d) too long (max %d)",
                    rta->rta_type, rta->rta_len, map->size);
@@ -296,7 +306,17 @@ rtnl_entry_set(void *entry,
       }
       memcpy(entry + map->offset, RTA_DATA(rta), map->size);
       memset(entry + map->offset + map->size, 0, 0);
-    } else if (rta) {
+    }
+    else if (map->type == RTA_MULTIPATH && rta) {
+        multipath_t *multipath = (multipath_t*)(entry + map->offset);
+        if (RTA_PAYLOAD(rta) > sizeof(multipath->nhops)) {
+          clib_warning("rta (type=%d len=%d) too long (max %d)", rta->rta_type, rta->rta_len, map->size);
+          return -1;
+        }
+        memcpy(multipath->nhops, RTA_DATA(rta), RTA_PAYLOAD(rta));
+        multipath->length = RTA_PAYLOAD(rta);
+      }
+    else if (rta) {
       if (RTA_PAYLOAD(rta) > map->size) {
         clib_warning("rta (type=%d len=%d) too long (max %d)", rta->rta_type, rta->rta_len, map->size);
         return -1;
@@ -437,9 +457,19 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
       return -1;
+
     pool_put(ns->netns.routes, route);
     netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
     return 0;
+  }
+
+  if (hdr->nlmsg_type == RTM_NEWROUTE &&
+      hdr->nlmsg_flags & NLM_F_REPLACE) {
+    if (!route)
+      return -1;
+
+    netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+    memset(route, 0, sizeof(*route));
   }
 
   if (!route) {
