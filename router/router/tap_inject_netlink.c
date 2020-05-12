@@ -174,7 +174,7 @@ get_mpls_label_stack(struct mpls_label *addr, u32* l)
 static void
 add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_len,
              u8 *dst, struct mpls_label *encap, u8 *gateway, struct rtvia *via,
-             int is_del)
+             u32 weight, int is_del)
 {
   if (rtm_family == AF_INET)
     {
@@ -196,21 +196,21 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
               fib_table_entry_path_remove (0, &prefix, FIB_SOURCE_API,
                                            prefix.fp_proto,
                                            &nh, sw_if_index, 0,
-                                           0 /* weight */,
+                                           weight,
                                            FIB_ROUTE_PATH_FLAG_NONE);
             }
           else {
               fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
                                         FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
                                         &nh, sw_if_index, 0,
-                                        0 /* weight */, NULL,
+                                        weight, NULL,
                                         FIB_ROUTE_PATH_FLAG_NONE);
             }
         }
       else {
         fib_route_path_t *rpaths = NULL, rpath;
         memset(&rpath, 0, sizeof(rpath));
-        rpath.frp_weight = 1;
+        rpath.frp_weight = weight;
         rpath.frp_proto = DPO_PROTO_IP4;
         clib_memcpy(&rpath.frp_addr.ip4, gateway, sizeof(rpath.frp_addr.ip4));
         rpath.frp_sw_if_index = sw_if_index;
@@ -248,14 +248,14 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
           fib_table_entry_path_remove (0, &prefix, FIB_SOURCE_API,
                                     prefix.fp_proto,
                                     &nh, sw_if_index, 0,
-                                    0 /* weight */,
+                                    weight,
                                     FIB_ROUTE_PATH_FLAG_NONE);
         }
       else {
           fib_table_entry_path_add (0, &prefix, FIB_SOURCE_API,
                                     FIB_ENTRY_FLAG_NONE, prefix.fp_proto,
                                     &nh, sw_if_index, 0,
-                                    0 /* weight */, NULL,
+                                    weight, NULL,
                                     FIB_ROUTE_PATH_FLAG_NONE);
         }
     }
@@ -272,7 +272,7 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
       prefix.fp_payload_proto = DPO_PROTO_IP4;
       memset(&rpath, 0, sizeof(rpath));
       clib_memcpy (&rpath.frp_addr.ip4, via->rtvia_addr, sizeof (rpath.frp_addr.ip4));
-      rpath.frp_weight = 1;
+      rpath.frp_weight = weight;
       rpath.frp_proto = DPO_PROTO_IP4;
       rpath.frp_fib_index = 0;
       rpath.frp_sw_if_index = sw_if_index;
@@ -300,6 +300,8 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
   int attrlen = 0;
   u32 oif = 0;
   u8 gateway[16];
+  u32 weight = 0;
+
   struct rtnexthop *nhptr = r->multipath.nhops;
   int rtnhp_len = r->multipath.length;
 
@@ -307,6 +309,7 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
     {
       attrlen = nhptr->rtnh_len;
       oif = nhptr->rtnh_ifindex;
+      weight = nhptr->rtnh_hops + 1;
 
       if (attrlen == 0)
         break;
@@ -322,7 +325,8 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
       add_del_fib(sw_if_index, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, gateway,
-                  (struct rtvia *)r->via, is_del);
+                  (struct rtvia *)r->via,
+                  weight, is_del);
 
       rtnhp_len -= NLMSG_ALIGN(attrlen);
       nhptr = RTNH_NEXT(nhptr);
@@ -344,7 +348,8 @@ add_del_route (ns_route_t * r, int is_del)
       add_del_fib(sw_if_index, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, r->gateway,
-                  (struct rtvia *)r->via, is_del);
+                  (struct rtvia *)r->via,
+                  0, is_del);
     }
 }
 
