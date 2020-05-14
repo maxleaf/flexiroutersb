@@ -13,6 +13,16 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2019 flexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - add missing functionality:
+ *      1. Handle REPLACE netlink messages (RTM_NEWROUTE with NLM_F_REPLACE flag)
+ *      2. Add support in RTA_MULTIPATH attribute of netlink messages.
+ *   - fix hashing logic: use 'dst' as key for hash. This is to prevent
+ *     duplicated entries in VPP FIB and out of think between VPP FIB and kernel.
+ */
+
 #include <librtnl/netns.h>
 
 #include <vnet/ip/format.h>
@@ -63,9 +73,24 @@ u8 *format_ns_link (u8 *s, va_list *args)
   return s;
 }
 
+#ifdef FLEXIWAN_FIX
+/*
+ * The 'ns_routemap' list below 0/1 to mark key for hash, where librtnl stores
+ * routes added by kernel.
+ * We use 'dst' only as a key, as it the only intersection between key for kernel
+ * routing rules and key for FIB entries. Kernel uses 'dst' and 'metric' to
+ * identify routing rules (for example, when it sends RTM_NEWROUTE netlink
+ * message with NLM_F_REPLACE flag). FIB doesn't support metric (VPP 19.01).
+ * We will ignore RTM_NEWROUTE, if route for same 'dst' exists in hash.
+ * We will delete route from hash on the first RTM_DELROUTE message with
+ * matching 'dst'. That might cause out-of-synch of VPP FIB and kernel for matter
+ * of metrics, but 'dst' should be OK.
+ */
+#endif
+
 #define ns_foreach_rta                          \
   _(RTA_DST, dst, 1)                            \
-  _(RTA_SRC, src, 1)                            \
+  _(RTA_SRC, src, 0)                            \
   _(RTA_VIA, via, 0)                            \
   _(RTA_GATEWAY, gateway, 0)                    \
   _(RTA_IIF, iif, 0)                            \
@@ -463,14 +488,25 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
     return 0;
   }
 
-  if (hdr->nlmsg_type == RTM_NEWROUTE &&
-      hdr->nlmsg_flags & NLM_F_REPLACE) {
-    if (!route)
+#ifdef FLEXIWAN_FIX
+  if (hdr->nlmsg_type == RTM_NEWROUTE  &&  route != 0)
+  {
+    if (hdr->nlmsg_flags & NLM_F_REPLACE)
+    {
+      netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+      pool_put(ns->netns.routes, route);
+      route = 0;
+    }
+    else
+    {
+      /*
+       * Block adding route that looks exactly same to VPP FIB.
+       * For multipath routes use the RTA_MULTIPATH attribute.
+       */
       return -1;
-
-    netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
-    memset(route, 0, sizeof(*route));
+    }
   }
+#endif
 
   if (!route) {
     pool_get(ns->netns.routes, route);

@@ -19,11 +19,9 @@
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - add missing functionality: reflect route deletion in Linux into VPP FIB
  *     (handle the RTM_DELROUTE Netlink message).
+ *   - fixed deletion of ARP entries on RTM_NEWNEIGH and RTM_DELNEIGH netlink
+ *     messages - see add_del_neigh() function
  */
-
-#ifndef FLEXIWAN_FIX
-#define FLEXIWAN_FIX
-#endif
 
 #include <librtnl/netns.h>
 #include <vlibmemory/api.h>
@@ -126,21 +124,39 @@ add_del_neigh (ns_neigh_t * n, int is_del)
       clib_memcpy (&a.ip4, n->dst, sizeof (a.ip4));
 
 
+#ifdef FLEXIWAN_FIX
+      /* The ndm_state does NOT reflect need to remove adjacency.
+         Kernel can send RTM_DELNEIGH with NUD_REACHABLE state,
+         as it was last state in neighbor table before removal.
+         The bug causes crash in fib_path_resolve() when vppsb tries to add
+         adjacency for interface that was removed (due to tunnel removal).
+      */
+      if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
+#else
       if (n->nd.ndm_state & NUD_REACHABLE)
+#endif /* FLEXIWAN_FIX */
         {
           vnet_arp_set_ip4_over_ethernet (vnet_main, sw_if_index,
                                           &a, 0 /* static */ ,
                                           0 /* no fib entry */);
 
         }
+#ifdef FLEXIWAN_FIX
+      else
+#else
       else if (n->nd.ndm_state & NUD_FAILED)
+#endif /* FLEXIWAN_FIX */
         {
           vnet_arp_unset_ip4_over_ethernet (vnet_main, sw_if_index, &a);
         }
     }
   else if (n->nd.ndm_family == AF_INET6)
     {
+#ifdef FLEXIWAN_FIX
+      if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
+#else
       if (n->nd.ndm_state & NUD_REACHABLE)
+#endif /* FLEXIWAN_FIX */
         {
           vnet_set_ip6_ethernet_neighbor (vm, sw_if_index,
                                           (ip6_address_t *) n->dst, n->lladdr, ETHER_ADDR_LEN,
