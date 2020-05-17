@@ -13,6 +13,16 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2019 flexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - add missing functionality:
+ *      1. Handle REPLACE netlink messages (RTM_NEWROUTE with NLM_F_REPLACE flag)
+ *      2. Add support in RTA_MULTIPATH attribute of netlink messages.
+ *   - fix hashing logic: use 'dst' as key for hash. This is to prevent
+ *     duplicated entries in VPP FIB and out of think between VPP FIB and kernel.
+ */
+
 #ifndef NETNS_H_
 #define NETNS_H_
 
@@ -43,10 +53,12 @@ typedef struct {
   f64 last_updated;
 } ns_link_t;
 
+#ifdef FLEXIWAN_FIX
 typedef struct {
   struct rtnexthop nhops[MULTIPATH_NEXTHOP_MAX];
   int length;
 } multipath_t;
+#endif /*#ifdef FLEXIWAN_FIX*/
 
 typedef struct {
   struct rtmsg rtm;
@@ -61,7 +73,9 @@ typedef struct {
   u32 priority;
   struct rta_cacheinfo cacheinfo;
   struct mpls_label encap[MPLS_STACK_DEPTH];
+#ifdef FLEXIWAN_FIX
   multipath_t multipath;
+#endif /*#ifdef FLEXIWAN_FIX*/
   f64 last_updated;
 } ns_route_t;
 

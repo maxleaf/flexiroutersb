@@ -22,13 +22,10 @@
  *   - enable VxLan decapsulation before packets are pushed into TAP
  */
 
-#ifndef FLEXIWAN_FIX
-#define FLEXIWAN_FIX
-#endif
-
 #include "tap_inject.h"
 
 #include <netinet/in.h>
+#include <vlib/vlib.h>
 #ifdef FLEXIWAN_FIX
 #include <sys/uio.h>
 #endif /* FLEXIWAN_FIX */
@@ -58,7 +55,7 @@ tap_inject_tap_send_buffer (vlib_main_t * vm, int fd, vlib_buffer_t * b)
 
   iov.iov_base = vlib_buffer_get_current (b);
   iov.iov_len = b->current_length;
-  
+
   // Handle fragmented packet:
   // Calculate total lenght, allocate buffer and copy all fragments into it.
   // TODO: use static buffer per thread.

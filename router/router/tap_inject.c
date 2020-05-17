@@ -21,10 +21,6 @@
  *   - hide internally used loopback interfaces from TAP/Linux
  */
 
-#ifndef FLEXIWAN_FIX
-#define FLEXIWAN_FIX
-#endif
-
 #include "tap_inject.h"
 
 #include <vnet/mfib/mfib_table.h>

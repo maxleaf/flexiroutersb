@@ -17,6 +17,7 @@
 #ifndef _TAP_INJECT_H
 #define _TAP_INJECT_H
 
+#include <vppinfra/clib.h>    // Bring FLEXIWAN_FIX and FLEXIWAN_FEATURE definitions
 #include <vnet/plugin/plugin.h>
 #include <vnet/ip/ip.h>
 
