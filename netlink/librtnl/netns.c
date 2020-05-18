@@ -97,7 +97,7 @@ u8 *format_ns_link (u8 *s, va_list *args)
   _(RTA_OIF, oif, 0)                            \
   _(RTA_PREFSRC, prefsrc, 0)                    \
   _(RTA_TABLE, table, 0)                        \
-  _(RTA_PRIORITY, priority, 0)                  \
+  _(RTA_PRIORITY, priority, 1)                  \
   _(RTA_CACHEINFO, cacheinfo, 0)                \
   _(RTA_ENCAP, encap, 1)                        \
   _(RTA_MULTIPATH, multipath, 0)
