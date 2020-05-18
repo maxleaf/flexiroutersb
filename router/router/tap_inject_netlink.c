@@ -192,6 +192,10 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
              u8 *dst, struct mpls_label *encap, u8 *gateway, struct rtvia *via,
              u32 priority, u32 weight, int is_del)
 {
+/*#warning IPv6/MPLS is disabled for now (May-2020)*/
+  if (rtm_family != AF_INET)
+    return;
+
   fib_route_path_t *rpaths = NULL, rpath;
   u32 stack[MPLS_STACK_DEPTH] = {0};
   fib_prefix_t prefix;
