@@ -101,6 +101,13 @@ add_del_link (ns_link_t * l, int is_del)
 }
 
 
+#ifdef FLEXIWAN_FIX
+/* The ndm_state does NOT reflect need to add adjacency.
+   Kernel can send RTM_DELNEIGH with NUD_REACHABLE state,
+   as it was last state in neighbor table before removal.
+   The bug causes crash in fib_path_resolve() when vppsb tries to add
+   adjacency for interface that was removed (due to tunnel removal).
+*/
 static void
 add_del_neigh (ns_neigh_t * n, int is_del)
 {
@@ -124,39 +131,73 @@ add_del_neigh (ns_neigh_t * n, int is_del)
       clib_memcpy (&a.ip4, n->dst, sizeof (a.ip4));
 
 
-#ifdef FLEXIWAN_FIX
-      /* The ndm_state does NOT reflect need to remove adjacency.
-         Kernel can send RTM_DELNEIGH with NUD_REACHABLE state,
-         as it was last state in neighbor table before removal.
-         The bug causes crash in fib_path_resolve() when vppsb tries to add
-         adjacency for interface that was removed (due to tunnel removal).
-      */
       if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
-#else
-      if (n->nd.ndm_state & NUD_REACHABLE)
-#endif /* FLEXIWAN_FIX */
         {
           vnet_arp_set_ip4_over_ethernet (vnet_main, sw_if_index,
                                           &a, 0 /* static */ ,
                                           0 /* no fib entry */);
 
         }
-#ifdef FLEXIWAN_FIX
-      else
-#else
-      else if (n->nd.ndm_state & NUD_FAILED)
-#endif /* FLEXIWAN_FIX */
+      else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
         {
           vnet_arp_unset_ip4_over_ethernet (vnet_main, sw_if_index, &a);
         }
     }
   else if (n->nd.ndm_family == AF_INET6)
     {
-#ifdef FLEXIWAN_FIX
       if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
-#else
+        {
+          vnet_set_ip6_ethernet_neighbor (vm, sw_if_index,
+                                          (ip6_address_t *) n->dst, n->lladdr, ETHER_ADDR_LEN,
+                                          0 /* static */,
+                                          0 /* no fib entry */);
+        }
+      else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
+        vnet_unset_ip6_ethernet_neighbor (vm, sw_if_index,
+                                          (ip6_address_t *) n->dst);
+    }
+}
+
+#else  /*#ifdef FLEXIWAN_FIX */
+
+static void
+add_del_neigh (ns_neigh_t * n, int is_del)
+{
+  vnet_main_t * vnet_main = vnet_get_main ();
+  vlib_main_t * vm = vlib_get_main ();
+  u32 sw_if_index;
+
+  sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (
+                                                                 n->nd.ndm_ifindex);
+
+  if (sw_if_index == ~0)
+    return;
+
+  if (n->nd.ndm_family == AF_INET)
+    {
+      ethernet_arp_ip4_over_ethernet_address_t a;
+
+      memset (&a, 0, sizeof (a));
+
+      clib_memcpy (&a.ethernet, n->lladdr, ETHER_ADDR_LEN);
+      clib_memcpy (&a.ip4, n->dst, sizeof (a.ip4));
+
+
       if (n->nd.ndm_state & NUD_REACHABLE)
-#endif /* FLEXIWAN_FIX */
+        {
+          vnet_arp_set_ip4_over_ethernet (vnet_main, sw_if_index,
+                                          &a, 0 /* static */ ,
+                                          0 /* no fib entry */);
+
+        }
+      else if (n->nd.ndm_state & NUD_FAILED)
+        {
+          vnet_arp_unset_ip4_over_ethernet (vnet_main, sw_if_index, &a);
+        }
+    }
+  else if (n->nd.ndm_family == AF_INET6)
+    {
+      if (n->nd.ndm_state & NUD_REACHABLE)
         {
           vnet_set_ip6_ethernet_neighbor (vm, sw_if_index,
                                           (ip6_address_t *) n->dst, n->lladdr, ETHER_ADDR_LEN,
@@ -168,7 +209,7 @@ add_del_neigh (ns_neigh_t * n, int is_del)
                                           (ip6_address_t *) n->dst);
     }
 }
-
+#endif /*#ifdef FLEXIWAN_FIX #else*/
 
 #define TAP_INJECT_HOST_ROUTE_TABLE_MAIN 254
 

@@ -21,6 +21,7 @@
  *      2. Add support in RTA_MULTIPATH attribute of netlink messages.
  *   - fix hashing logic: use 'dst' as key for hash. This is to prevent
  *     duplicated entries in VPP FIB and out of think between VPP FIB and kernel.
+ *   - fix handling RTM_NEWNEIGH messages to prevent duplicated entries in VPP
  */
 
 #include <librtnl/netns.h>
@@ -639,6 +640,13 @@ ns_rcv_neigh(netns_p *ns, struct nlmsghdr *hdr)
     memset(neigh, 0, sizeof(*neigh));
     rtnl_entry_set(neigh, rtas, ns_neighmap, 1);
   } else {
+#ifdef FLEXIWAN_FIX
+    /* Don't update VPP if state was not changed.
+       That might create duplicate entries, while taking old entries to not-resolved state.
+    */
+    if (neigh->nd.ndm_state == nd->ndm_state)
+      return 0;
+#endif
     rtnl_entry_set(neigh, rtas, ns_neighmap, 0);
   }
 
