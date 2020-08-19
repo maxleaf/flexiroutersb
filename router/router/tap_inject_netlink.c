@@ -25,10 +25,10 @@
 
 #include <librtnl/netns.h>
 #include <vlibmemory/api.h>
-#include <vnet/ip/ip6_neighbor.h>
+#include <vnet/ip-neighbor/ip6_neighbor.h>
 #include <vnet/ip/lookup.h>
 #include <vnet/fib/fib.h>
-#include <vnet/ethernet/arp.h>
+#include <vnet/arp/arp.h>
 #include <arpa/inet.h>
 #include <linux/mpls.h>
 #include <vnet/mpls/packet.h>
@@ -127,7 +127,7 @@ add_del_neigh (ns_neigh_t * n, int is_del)
 
       memset (&a, 0, sizeof (a));
 
-      clib_memcpy (&a.ethernet, n->lladdr, ETHER_ADDR_LEN);
+      clib_memcpy (&a.mac, n->lladdr, ETHER_ADDR_LEN);
       clib_memcpy (&a.ip4, n->dst, sizeof (a.ip4));
 
 
