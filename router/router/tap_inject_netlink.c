@@ -111,6 +111,7 @@ add_del_link (ns_link_t * l, int is_del)
 static void
 add_del_neigh (ns_neigh_t * n, int is_del)
 {
+#if TBD
   vnet_main_t * vnet_main = vnet_get_main ();
   vlib_main_t * vm = vlib_get_main ();
   u32 sw_if_index;
@@ -156,6 +157,7 @@ add_del_neigh (ns_neigh_t * n, int is_del)
         vnet_unset_ip6_ethernet_neighbor (vm, sw_if_index,
                                           (ip6_address_t *) n->dst);
     }
+#endif
 }
 
 #else  /*#ifdef FLEXIWAN_FIX */
