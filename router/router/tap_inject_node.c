@@ -167,9 +167,6 @@ VLIB_REGISTER_NODE (tap_inject_tx_node) = {
 };
 
 #ifdef FLEXIWAN_FIX
-VLIB_NODE_FUNCTION_MULTIARCH (tap_inject_tx_node,
-                              tap_inject_tx);
-
 VNET_FEATURE_INIT (tap_inject_tx_node, static) = {
   .arc_name = "ip4-punt",
   .node_name = "tap-inject-tx",
@@ -182,9 +179,6 @@ VLIB_REGISTER_NODE (ip6_tap_inject_tx_node) = {
   .vector_size = sizeof (u32),
   .type = VLIB_NODE_TYPE_INTERNAL,
 };
-
-VLIB_NODE_FUNCTION_MULTIARCH (ip6_tap_inject_tx_node,
-                              tap_inject_tx);
 
 VNET_FEATURE_INIT (ip6_tap_inject_tx_node, static) = {
   .arc_name = "ip6-punt",
