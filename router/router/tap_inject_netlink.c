@@ -233,7 +233,7 @@ get_mpls_label_stack(struct mpls_label *addr, u32* l)
 static void
 add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_len,
              u8 *dst, struct mpls_label *encap, u8 *gateway, struct rtvia *via,
-             u32 priority, u32 weight, int is_del)
+             u32 priority, u32 weight, int is_del, u8 is_multipath)
 {
 /*#warning IPv6/MPLS is disabled for now (May-2020)*/
   if (rtm_family != AF_INET)
@@ -294,19 +294,35 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
   vec_add1(rpaths, rpath);
 
-  if (is_del) {
+  if (is_multipath) {
+    if (is_del) {
       fib_table_entry_path_remove2(0,
-                                &prefix,
-                                FIB_SOURCE_API,
-                                rpaths);
+                                   &prefix,
+                                   FIB_SOURCE_API,
+                                   rpaths);
     }
-  else {
+    else {
       fib_table_entry_path_add2(0,
                                 &prefix,
                                 FIB_SOURCE_API,
                                 FIB_ENTRY_FLAG_NONE,
                                 rpaths);
     }
+  } else {
+      if (is_del) {
+        fib_table_entry_delete(0,
+                               &prefix,
+                               FIB_SOURCE_API);
+      }
+      else {
+        fib_table_entry_update(0,
+                               &prefix,
+                               FIB_SOURCE_API,
+                               FIB_ENTRY_FLAG_NONE,
+                               rpaths);
+      }
+  }
+
   vec_free(rpaths);
 }
 
@@ -343,7 +359,7 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, gateway,
                   (struct rtvia *)r->via,
-                  r->priority, weight, is_del);
+                  r->priority, weight, is_del, 1);
 
       rtnhp_len -= NLMSG_ALIGN(attrlen);
       nhptr = RTNH_NEXT(nhptr);
@@ -367,7 +383,7 @@ add_del_route (ns_route_t * r, int is_del)
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, r->gateway,
                   (struct rtvia *)r->via,
-                  r->priority, weight, is_del);
+                  r->priority, weight, is_del, 0);
     }
 }
 
