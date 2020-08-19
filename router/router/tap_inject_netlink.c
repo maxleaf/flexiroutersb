@@ -28,6 +28,7 @@
 #include <vnet/ip-neighbor/ip6_neighbor.h>
 #include <vnet/ip/lookup.h>
 #include <vnet/fib/fib.h>
+#include <vnet/fib/ip4_fib.h>
 #include <vnet/arp/arp.h>
 #include <arpa/inet.h>
 #include <linux/mpls.h>
@@ -242,6 +243,7 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
   fib_route_path_t *rpaths = NULL, rpath;
   u32 stack[MPLS_STACK_DEPTH] = {0};
   fib_prefix_t prefix;
+  u32 fib_index = ip4_fib_index_from_table_id (0);
 
   memset(&rpath, 0, sizeof(rpath));
   memset (&prefix, 0, sizeof (prefix));
@@ -296,13 +298,13 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
   if (is_multipath) {
     if (is_del) {
-      fib_table_entry_path_remove2(0,
+      fib_table_entry_path_remove2(fib_index,
                                    &prefix,
                                    FIB_SOURCE_API,
                                    rpaths);
     }
     else {
-      fib_table_entry_path_add2(0,
+      fib_table_entry_path_add2(fib_index,
                                 &prefix,
                                 FIB_SOURCE_API,
                                 FIB_ENTRY_FLAG_NONE,
@@ -310,12 +312,12 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
     }
   } else {
       if (is_del) {
-        fib_table_entry_delete(0,
+        fib_table_entry_delete(fib_index,
                                &prefix,
                                FIB_SOURCE_API);
       }
       else {
-        fib_table_entry_update(0,
+        fib_table_entry_update(fib_index,
                                &prefix,
                                FIB_SOURCE_API,
                                FIB_ENTRY_FLAG_NONE,
