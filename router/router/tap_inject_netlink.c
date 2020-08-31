@@ -25,7 +25,7 @@
 
 #include <librtnl/netns.h>
 #include <vlibmemory/api.h>
-#include <vnet/ip-neighbor/ip6_neighbor.h>
+#include <vnet/ip-neighbor/ip_neighbor.h>
 #include <vnet/ip/lookup.h>
 #include <vnet/fib/fib.h>
 #include <vnet/fib/ip4_fib.h>
@@ -112,10 +112,11 @@ add_del_link (ns_link_t * l, int is_del)
 static void
 add_del_neigh (ns_neigh_t * n, int is_del)
 {
-#if TBD
-  vnet_main_t * vnet_main = vnet_get_main ();
-  vlib_main_t * vm = vlib_get_main ();
   u32 sw_if_index;
+  ip46_address_t ip = ip46_address_initializer;
+  ip_neighbor_flags_t flags = IP_NEIGHBOR_FLAG_NONE;
+  mac_address_t mac = ZERO_MAC_ADDRESS;
+  ip46_type_t type;
 
   sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (
                                                                  n->nd.ndm_ifindex);
@@ -123,42 +124,22 @@ add_del_neigh (ns_neigh_t * n, int is_del)
   if (sw_if_index == ~0)
     return;
 
-  if (n->nd.ndm_family == AF_INET)
+  flags |= IP_NEIGHBOR_FLAG_STATIC;
+  flags |= IP_NEIGHBOR_FLAG_NO_FIB_ENTRY;
+
+  type = (n->nd.ndm_family == AF_INET) ? IP46_TYPE_IP4 : IP46_TYPE_IP6;
+  ip_set(&ip, n->dst, type);
+  mac_address_from_bytes (&mac, n->lladdr);
+
+  if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
     {
-      ethernet_arp_ip4_over_ethernet_address_t a;
-
-      memset (&a, 0, sizeof (a));
-
-      clib_memcpy (&a.mac, n->lladdr, ETHER_ADDR_LEN);
-      clib_memcpy (&a.ip4, n->dst, sizeof (a.ip4));
-
-
-      if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
-        {
-          vnet_arp_set_ip4_over_ethernet (vnet_main, sw_if_index,
-                                          &a, 0 /* static */ ,
-                                          0 /* no fib entry */);
-
-        }
-      else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
-        {
-          vnet_arp_unset_ip4_over_ethernet (vnet_main, sw_if_index, &a);
-        }
+      ip_neighbor_add (&ip, type, &mac, sw_if_index,
+               flags, NULL);
     }
-  else if (n->nd.ndm_family == AF_INET6)
+  else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
     {
-      if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
-        {
-          vnet_set_ip6_ethernet_neighbor (vm, sw_if_index,
-                                          (ip6_address_t *) n->dst, n->lladdr, ETHER_ADDR_LEN,
-                                          0 /* static */,
-                                          0 /* no fib entry */);
-        }
-      else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
-        vnet_unset_ip6_ethernet_neighbor (vm, sw_if_index,
-                                          (ip6_address_t *) n->dst);
+      ip_neighbor_del (&ip, type, sw_if_index);
     }
-#endif
 }
 
 #else  /*#ifdef FLEXIWAN_FIX */
