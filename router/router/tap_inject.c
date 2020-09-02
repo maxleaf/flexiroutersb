@@ -28,6 +28,7 @@
 #include <vnet/ip/lookup.h>
 #include <vnet/fib/fib.h>
 #include <vnet/osi/osi.h>
+#include <vnet/gre/gre.h>
 
 #ifdef FLEXIWAN_FIX
 #include <vnet/udp/udp.h>
@@ -221,6 +222,13 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
 
       if (hw->hw_class_index == ethernet_hw_interface_class.index)
         {
+#ifdef FLEXIWAN_FIX
+          if (hw->dev_class_index == gre_device_class.index)
+            {
+              continue;
+            }
+#endif /* FLEXIWAN_FIX */
+
           err = tap_inject_tap_connect (hw);
           if (err)
             break;
