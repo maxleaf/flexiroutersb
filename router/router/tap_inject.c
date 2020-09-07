@@ -273,12 +273,14 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 hw_if_index,
   // The fwagent enforces odd instance numbers for loop1 interfaces,
   // e.g. loop5, loop7, loop9 etc, and even indexes for loop0 interfaces.
   // See usage of create_loopback_instance() function in fwagent.
+#if 0  
   {
       vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_main, hw_if_index);
       if (hw->name != NULL  &&  clib_memcmp(hw->name, "loop", 4) == 0  &&
           hw->dev_instance % 2 == 1)
         return 0;
   }
+#endif  
 #endif /* FLEXIWAN_FIX */
 
   if (add)
