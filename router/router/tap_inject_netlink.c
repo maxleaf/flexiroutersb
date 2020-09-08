@@ -337,6 +337,8 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
         }
 
       sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (oif);
+      if (sw_if_index == ~0)
+        return;
 
       add_del_fib(sw_if_index, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
@@ -362,6 +364,9 @@ add_del_route (ns_route_t * r, int is_del)
   else
     {
       sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (r->oif);
+      if (sw_if_index == ~0)
+        return;
+
       add_del_fib(sw_if_index, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, r->gateway,
