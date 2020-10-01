@@ -557,6 +557,9 @@ VLIB_REGISTER_NODE(rtnl_process_node, static) = {
   .function = rtnl_process,
   .name = "rtnl-process",
   .type = VLIB_NODE_TYPE_PROCESS,
+#ifdef FLEXIWAN_FIX
+  .process_log2_n_stack_bytes = 17
+#endif /*#ifdef FLEXIWAN_FIX*/
 };
 
 u32
