@@ -257,7 +257,7 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 hw_if_index,
 
   tap_inject_enable ();
 
-#ifdef FLEXIWAN_FIX
+#if 0
   // As of Dec-2019 we use loop0-bridge-l2gre_ipsec_tunnel and loop1-bridge-vxlan_tunnel 
   // in order to enable NAT 1:1. The loop1 interface should not be exposed to Linux/user,
   // as it is for internal use only, and no ping/netplan etc should be enabled.
