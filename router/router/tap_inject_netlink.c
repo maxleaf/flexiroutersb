@@ -33,6 +33,7 @@
 #include <arpa/inet.h>
 #include <linux/mpls.h>
 #include <vnet/mpls/packet.h>
+#include <vnet/ip/ip_types_api.h>
 
 #include "tap_inject.h"
 
@@ -113,10 +114,10 @@ static void
 add_del_neigh (ns_neigh_t * n, int is_del)
 {
   u32 sw_if_index;
-  ip46_address_t ip = ip46_address_initializer;
+  ip_address_t ip = ip_address_initializer;
+  ip_address_family_t af;
   ip_neighbor_flags_t flags = IP_NEIGHBOR_FLAG_NONE;
   mac_address_t mac = ZERO_MAC_ADDRESS;
-  ip46_type_t type;
 
   sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (
                                                                  n->nd.ndm_ifindex);
@@ -127,18 +128,18 @@ add_del_neigh (ns_neigh_t * n, int is_del)
   flags |= IP_NEIGHBOR_FLAG_STATIC;
   flags |= IP_NEIGHBOR_FLAG_NO_FIB_ENTRY;
 
-  type = (n->nd.ndm_family == AF_INET) ? IP46_TYPE_IP4 : IP46_TYPE_IP6;
-  ip_set(&ip, n->dst, type);
+  af = (n->nd.ndm_family == AF_INET) ? AF_IP4 : AF_IP6;
+  ip_address_set (&ip, n->dst, af);
   mac_address_from_bytes (&mac, n->lladdr);
 
   if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
     {
-      ip_neighbor_add (&ip, type, &mac, sw_if_index,
+      ip_neighbor_add (&ip, &mac, sw_if_index,
                flags, NULL);
     }
   else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
     {
-      ip_neighbor_del (&ip, type, sw_if_index);
+      ip_neighbor_del (&ip, sw_if_index);
     }
 }
 
