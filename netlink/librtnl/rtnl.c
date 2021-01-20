@@ -516,12 +516,12 @@ rtnl_process (vlib_main_t * vm,
     rm->now = vlib_time_now(vm);
 
     if (event_type == ~0) { //Clock event or no event
-      pool_foreach(ns, rm->streams, {
+      pool_foreach(ns, rm->streams) {
           if (ns->timeout < rm->now) {
             ns->timeout = DBL_MAX;
             rtnl_process_timeout(ns);
           }
-        });
+        };
     } else {
       rtnl_ns_t *ns;
       uword *d;
@@ -545,10 +545,10 @@ rtnl_process (vlib_main_t * vm,
     vec_reset_length (event_data);
 
     timeout = DBL_MAX;
-    pool_foreach(ns, rm->streams, {
+    pool_foreach(ns, rm->streams) {
         if (ns->timeout < timeout)
           timeout = ns->timeout;
-      });
+      };
   }
   return frame->n_vectors;
 }

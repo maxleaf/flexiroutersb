@@ -2737,20 +2737,20 @@ vcom_socket_main_show (void)
       /* from active list of vsockets show vsock */
 
       /* *INDENT-OFF* */
-      pool_foreach (vsock, vsm->vsockets,
-        ({
+      pool_foreach (vsock, vsm->vsockets)
+        {
           printf(
                  "fd='%04d', sid='%08x',type='%-30s'\n",
                  vsock->fd, vsock->sid,
                  vcom_socket_type_str (vsock->type));
-        }));
+        }
       /* *INDENT-ON* */
 
       /* from active list of vepolls, show vepoll */
 
       /* *INDENT-OFF* */
-      pool_foreach (vepoll, vsm->vepolls,
-        ({
+      pool_foreach (vepoll, vsm->vepolls)
+        {
           printf(
                  "epfd='%04d', vep_idx='%08x', "
                  "type='%-30s', "
@@ -2758,14 +2758,14 @@ vcom_socket_main_show (void)
                  vepoll->epfd, vepoll->vep_idx,
                  vcom_socket_epoll_type_str (vepoll->type),
                  vepoll->flags, vepoll->count, vepoll->close);
-        }));
+        }
       /* *INDENT-ON* */
 
       /* from active list of vepitems, show vepitem */
 
       /* *INDENT-OFF* */
-      pool_foreach (vepitem, vsm->vepitems,
-        ({
+      pool_foreach (vepitem, vsm->vepitems)
+        {
           printf(
                  "epfd='%04d', fd='%04d', "
                  "next_fd='%04d', prev_fd='%04d', "
@@ -2775,7 +2775,7 @@ vcom_socket_main_show (void)
                  vepitem->next_fd, vepitem->prev_fd,
                  vcom_socket_vcom_fd_type_str (vepitem->type),
                  vepitem->event.events, vepitem->revent.events);
-        }));
+        }
 
       /* *INDENT-ON* */
 
@@ -2878,15 +2878,15 @@ vcom_socket_main_destroy (void)
        * */
 
       /* *INDENT-OFF* */
-      pool_foreach (vsock, vsm->vsockets,
-        ({
+      pool_foreach (vsock, vsm->vsockets)
+        {
           if (vsock->type == SOCKET_TYPE_VPPCOM_BOUND)
             {
               vppcom_session_close (vsock->sid);
               vcom_socket_close_socket (vsock->fd);
               vsocket_init (vsock);
             }
-        }));
+        }
       /* *INDENT-ON* */
 
       /*
@@ -2910,15 +2910,15 @@ vcom_socket_main_destroy (void)
        * */
 
       /* *INDENT-OFF* */
-      pool_foreach (vepoll, vsm->vepolls,
-        ({
+      pool_foreach (vepoll, vsm->vepolls)
+        {
           if (vepoll->type == EPOLL_TYPE_VPPCOM_BOUND)
             {
               vppcom_session_close (vepoll->vep_idx);
               vcom_socket_close_epoll (vepoll->epfd); /* TBD: */
               vepoll_init (vepoll);
             }
-        }));
+        }
       /* *INDENT-ON* */
 
       /*

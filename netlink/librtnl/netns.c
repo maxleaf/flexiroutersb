@@ -361,10 +361,10 @@ netns_notify(netns_p *ns, void *obj, netns_type_t type, u32 flags)
 {
   netns_main_t *nm = &netns_main;
   netns_handle_t *h;
-  pool_foreach(h, nm->handles, {
+  pool_foreach(h, nm->handles) {
       if (h->netns_index == (ns - nm->netnss) &&  h->notify)
         h->notify(obj, type, flags, h->opaque);
-    });
+    };
 }
 
 static_always_inline int
@@ -384,10 +384,10 @@ static ns_link_t *
 ns_get_link(netns_p *ns, struct ifinfomsg *ifi, struct rtattr *rtas[])
 {
   ns_link_t *link;
-  pool_foreach(link, ns->netns.links, {
+  pool_foreach(link, ns->netns.links) {
       if(ifi->ifi_index == link->ifi.ifi_index)
         return link;
-    });
+    };
   return NULL;
 }
 
@@ -450,11 +450,11 @@ ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[])
     .rtm_type = 0xff
   };
 
-  pool_foreach(route, ns->netns.routes, {
+  pool_foreach(route, ns->netns.routes) {
       if(mask_match(&route->rtm, rtm, &msg, sizeof(struct rtmsg)) &&
          rtnl_entry_match(route, rtas, ns_routemap))
         return route;
-    });
+    };
   return NULL;
 }
 
@@ -534,11 +534,11 @@ ns_get_addr(netns_p *ns, struct ifaddrmsg *ifaddr, struct rtattr *rtas[])
     .ifa_prefixlen = 0xff,
   };
 
-  pool_foreach(addr, ns->netns.addresses, {
+  pool_foreach(addr, ns->netns.addresses) {
       if(mask_match(&addr->ifaddr, ifaddr, &msg, sizeof(struct ifaddrmsg)) &&
          rtnl_entry_match(addr, rtas, ns_addrmap))
         return addr;
-    });
+    };
   return NULL;
 }
 
@@ -597,11 +597,11 @@ ns_get_neigh(netns_p *ns, struct ndmsg *nd, struct rtattr *rtas[])
     .ndm_ifindex = 0xff,
   };
 
-  pool_foreach(neigh, ns->netns.neighbors, {
+  pool_foreach(neigh, ns->netns.neighbors) {
       if(mask_match(&neigh->nd, nd, &msg, sizeof(&msg)) &&
          rtnl_entry_match(neigh, rtas, ns_neighmap))
         return neigh;
-    });
+    };
   return NULL;
 }
 
@@ -671,9 +671,9 @@ ns_recv_error(rtnl_error_t err, uword o)
   u32 *i = 0;
 
 #define _(pool, type)                                           \
-  pool_foreach_index(*i, ns->netns.pool, {                      \
+  pool_foreach_index(*i, ns->netns.pool) {                      \
       vec_add1(indexes, *i);                                    \
-    })                                                          \
+    }                                                           \
     vec_foreach(i, indexes) {                                   \
     pool_put_index(ns->netns.pool, *i);                         \
     netns_notify(ns, &ns->netns.pool[*i], type, NETNS_F_DEL);   \
@@ -730,10 +730,10 @@ netns_get(char *name)
 {
   netns_main_t *nm = &netns_main;
   netns_p *ns;
-  pool_foreach(ns, nm->netnss, {
+  pool_foreach(ns, nm->netnss) {
       if (!strcmp(name, ns->netns.name))
         return ns;
-    });
+    };
 
   if (strlen(name) > RTNL_NETNS_NAMELEN)
     return NULL;
@@ -807,10 +807,10 @@ void netns_callme(u32 handle, char del)
     return;
 
 #define _(pool, type)                                           \
-  pool_foreach_index(i, ns->netns.pool, {                       \
+  pool_foreach_index(i, ns->netns.pool) {                       \
       h->notify(&ns->netns.pool[i], type,                       \
                 del?NETNS_F_DEL:NETNS_F_ADD, h->opaque);        \
-    });
+    };
 
   ns_object_foreach
 #undef _
