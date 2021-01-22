@@ -78,14 +78,13 @@ u8 *format_ns_link (u8 *s, va_list *args)
 /*
  * The 'ns_routemap' list below 0/1 to mark key for hash, where librtnl stores
  * routes added by kernel.
- * We use 'dst' only as a key, as it the only intersection between key for kernel
+ * We use 'dst', 'priority' and 'gateway' only as a key, as it the only intersection between key for kernel
  * routing rules and key for FIB entries. Kernel uses 'dst' and 'metric' to
  * identify routing rules (for example, when it sends RTM_NEWROUTE netlink
- * message with NLM_F_REPLACE flag). FIB doesn't support metric (VPP 19.01).
- * We will ignore RTM_NEWROUTE, if route for same 'dst' exists in hash.
+ * message with NLM_F_REPLACE flag).
+ * We will ignore RTM_NEWROUTE, if route for same key exists in hash.
  * We will delete route from hash on the first RTM_DELROUTE message with
- * matching 'dst'. That might cause out-of-synch of VPP FIB and kernel for matter
- * of metrics, but 'dst' should be OK.
+ * matching key. That might cause out-of-synch of VPP FIB and kernel.
  */
 #endif
 
@@ -93,7 +92,7 @@ u8 *format_ns_link (u8 *s, va_list *args)
   _(RTA_DST, dst, 1)                            \
   _(RTA_SRC, src, 0)                            \
   _(RTA_VIA, via, 0)                            \
-  _(RTA_GATEWAY, gateway, 0)                    \
+  _(RTA_GATEWAY, gateway, 1)                    \
   _(RTA_IIF, iif, 0)                            \
   _(RTA_OIF, oif, 0)                            \
   _(RTA_PREFSRC, prefsrc, 0)                    \
