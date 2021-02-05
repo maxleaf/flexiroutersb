@@ -40,6 +40,14 @@ enum {
   NEXT_NEIGHBOR_ICMP6,
 };
 
+typedef enum
+{
+  TAP_INJECT_INPUT_IP4_LOOKUP,
+  TAP_INJECT_INPUT_IP6_LOOKUP,
+  TAP_INJECT_INPUT_N_NEXT,
+} tap_inject_input_t;
+
+
 /**
  * @brief Dynamically added tap_inject DPO type
  */
@@ -294,6 +302,111 @@ VLIB_REGISTER_NODE (tap_inject_neighbor_node) = {
 #define MTU_BUFFERS ((MTU + VLIB_BUFFER_DATA_SIZE - 1) / VLIB_BUFFER_DATA_SIZE)
 #define NUM_BUFFERS_TO_ALLOC 32
 
+static inline u32
+tap_rx_get_next_node(u32 ether_type)
+{
+  if (ether_type == ETHERNET_TYPE_IP4)
+    return TAP_INJECT_INPUT_IP4_LOOKUP;
+  else if (ether_type == ETHERNET_TYPE_IP6)
+    return TAP_INJECT_INPUT_IP6_LOOKUP;
+  else
+    return TAP_INJECT_INPUT_N_NEXT;
+}
+
+static inline u32
+tap_rx_ip4_get_worker_offset (ip4_header_t * ip4)
+{
+  tap_inject_main_t *tm = tap_inject_get_main();
+  u32 hash;
+
+  hash = ip4->src_address.as_u32 + (ip4->src_address.as_u32 >> 8) +
+    (ip4->src_address.as_u32 >> 16) + (ip4->src_address.as_u32 >> 24);
+
+  if (PREDICT_TRUE (is_pow2 (tm->num_workers)))
+    return hash & (tm->num_workers - 1);
+  else
+    return hash % tm->num_workers;
+}
+
+static inline u32
+tap_rx_ip6_get_worker_offset (ip6_header_t * ip6)
+{
+  tap_inject_main_t *tm = tap_inject_get_main();
+  u32 hash;
+  ip6_address_t *addr = &ip6->src_address;
+
+#ifdef clib_crc32c_uses_intrinsics
+  hash = clib_crc32c ((u8 *) addr->as_u32, 16);
+#else
+  u64 tmp = addr->as_u64[0] ^ addr->as_u64[1];
+  hash = clib_xxhash (tmp);
+#endif
+
+  if (PREDICT_TRUE (is_pow2 (tm->num_workers)))
+    return hash & (tm->num_workers - 1);
+  else
+    return hash % tm->num_workers;
+}
+
+static inline void
+tap_rx_process_via_ip_path ( vlib_main_t* vm, vlib_node_runtime_t * node, 
+			    vnet_hw_interface_t *hw, u32 bi0, u32 next_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  vlib_buffer_t *b = vlib_get_buffer (vm, bi0);
+  // ip-lookup uses it in fib index calculation
+  vnet_buffer (b)->sw_if_index[VLIB_TX] = ~0;
+  vlib_buffer_advance (b, sizeof (ethernet_header_t));
+
+  if (next_index == TAP_INJECT_INPUT_IP4_LOOKUP)
+    {
+      ip4_header_t *ip4 = vlib_buffer_get_current (b);
+      if (im->num_workers)
+	{
+	  u16 ip4_ti = im->first_worker_index + tap_rx_ip4_get_worker_offset(ip4);
+	  vlib_buffer_enqueue_to_thread (vm, im->ip4_handoff_queue_index,
+					 &bi0, &ip4_ti, 1, 1);
+	}
+      else
+	{
+	  u32 * ip4_next;
+	  u32 n_left_to_ip4_next;
+	  vlib_get_next_frame (vm, node, TAP_INJECT_INPUT_IP4_LOOKUP,
+			       ip4_next, n_left_to_ip4_next);
+	  ip4_next[0] = bi0;
+	  n_left_to_ip4_next--;
+	  vlib_put_next_frame (vm, node, TAP_INJECT_INPUT_IP4_LOOKUP,
+			       n_left_to_ip4_next);
+	}
+    }
+  else if (next_index == TAP_INJECT_INPUT_IP6_LOOKUP)
+    {
+      ip6_header_t *ip6 = vlib_buffer_get_current (b);
+      if (im->num_workers)
+	{
+	  u16 ip6_ti = im->first_worker_index + tap_rx_ip6_get_worker_offset(ip6);
+	  vlib_buffer_enqueue_to_thread (vm, im->ip6_handoff_queue_index,
+					 &bi0, &ip6_ti, 1, 1);
+	}
+      else
+	{
+	  u32 * ip6_next;
+	  u32 n_left_to_ip6_next;
+	  vlib_get_next_frame (vm, node, TAP_INJECT_INPUT_IP6_LOOKUP,
+			       ip6_next, n_left_to_ip6_next);
+	  ip6_next[0] = bi0;
+	  n_left_to_ip6_next--;
+	  vlib_put_next_frame (vm, node, TAP_INJECT_INPUT_IP6_LOOKUP,
+			       n_left_to_ip6_next);
+	}
+    }
+  else
+    {
+      clib_error ("tap_inject - Invalid next index");
+      vlib_buffer_free (vm, &bi0, 1);
+    }
+}
+
 static inline uword
 tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 {
@@ -380,17 +493,29 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   /* Get the packet to the output node. */
   {
     vnet_hw_interface_t * hw;
-    vlib_frame_t * new_frame;
-    u32 * to_next;
 
     hw = vnet_get_hw_interface (vnet_get_main (), sw_if_index);
+    ethernet_header_t *eh = vlib_buffer_get_current (b);
+    u32 next_index = tap_rx_get_next_node(clib_net_to_host_u16 (eh->type));
 
-    new_frame = vlib_get_frame_to_node (vm, hw->output_node_index);
-    to_next = vlib_frame_vector_args (new_frame);
-    to_next[0] = bi[0];
-    new_frame->n_vectors = 1;
+    if ((vnet_interface_check_if_loopback (hw) == 0) ||
+	(next_index == TAP_INJECT_INPUT_N_NEXT))
+      {
+	// If loopback interface or non IP - Pass on to output node write 
+	vlib_frame_t * new_frame;
+	u32 * to_next;
+	new_frame = vlib_get_frame_to_node (vm, hw->output_node_index);
+	to_next = vlib_frame_vector_args (new_frame);
+	to_next[0] = bi[0];
+	new_frame->n_vectors = 1;
 
-    vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
+	vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
+      }
+    else
+      {
+	// Process via IP path - Pass via interface output features like NAT, ACL
+	tap_rx_process_via_ip_path (vm, node, hw, bi[0], next_index);
+      }
   }
 
   return 1;
@@ -425,6 +550,11 @@ VLIB_REGISTER_NODE (tap_inject_rx_node) = {
   .type = VLIB_NODE_TYPE_INPUT,
   .state = VLIB_NODE_STATE_INTERRUPT,
   .vector_size = sizeof (u32),
+  .n_next_nodes = TAP_INJECT_INPUT_N_NEXT,
+  .next_nodes = {
+      [TAP_INJECT_INPUT_IP4_LOOKUP] = "ip4-lookup",
+      [TAP_INJECT_INPUT_IP6_LOOKUP] = "ip6-lookup",
+  },
 };
 
 /**
@@ -478,6 +608,26 @@ tap_inject_init (vlib_main_t * vm)
 
   vec_alloc (im->rx_buffers, NUM_BUFFERS_TO_ALLOC);
   vec_reset_length (im->rx_buffers);
+
+  // Setup queues for IP lookup handoffs
+  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *) "ip4-lookup");
+  im->ip4_handoff_queue_index = vlib_frame_queue_main_init (node->index, 0);
+  node = vlib_get_node_by_name (vm, (u8 *) "ip6-lookup");
+  im->ip6_handoff_queue_index = vlib_frame_queue_main_init (node->index, 0);
+
+  // Init num worker threads - Used in handoff queue assignment
+  vlib_thread_main_t *tm = vlib_get_thread_main ();
+  uword *threads = hash_get_mem (tm->thread_registrations_by_name, "workers");
+  if (threads)
+    {
+      vlib_thread_registration_t *worker;
+      worker = (vlib_thread_registration_t *) threads[0];
+      if (worker)
+        {
+	  im->first_worker_index = worker->first_index;
+          im->num_workers = worker->count;
+        }
+    }
 
   return 0;
 }

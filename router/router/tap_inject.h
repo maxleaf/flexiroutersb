@@ -57,6 +57,13 @@ typedef struct {
 
   u32 * rx_buffers;
 
+  // Index corresponding to the handoff queues
+  u32 ip4_handoff_queue_index;
+  u32 ip6_handoff_queue_index;
+
+  u32 first_worker_index;
+  u32 num_workers;
+
 } tap_inject_main_t;
 
 
