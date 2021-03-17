@@ -126,7 +126,6 @@ add_del_neigh (ns_neigh_t * n, int is_del)
     return;
 
   flags |= IP_NEIGHBOR_FLAG_DYNAMIC;
-  flags |= IP_NEIGHBOR_FLAG_NO_FIB_ENTRY;
 
   af = (n->nd.ndm_family == AF_INET) ? AF_IP4 : AF_IP6;
   ip_address_set (&ip, n->dst, af);
