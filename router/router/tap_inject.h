@@ -38,6 +38,7 @@ typedef struct {
 #define TAP_INJECT_F_CONFIG_DISABLE (1U << 1)
 #define TAP_INJECT_F_CONFIG_NETLINK (1U << 2)
 #define TAP_INJECT_F_ENABLED        (1U << 3)
+#define TAP_INJECT_NAT44_OUTPUT     (1U << 4)
 
   u32 flags;
 
@@ -56,6 +57,10 @@ typedef struct {
   u32 neighbor_node_index;
 
   u32 * rx_buffers;
+
+  u32 nat44_handoff_index;
+  u16 nat44_handoff_thread_index;
+  u16 nat44_workers_count;
 
 } tap_inject_main_t;
 
