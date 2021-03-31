@@ -39,7 +39,7 @@
 #include <linux/mpls.h>
 /*so far depth is fixed, looking into ways to be dynamic*/
 #define MPLS_STACK_DEPTH 7
-#define MULTIPATH_NEXTHOP_MAX 10
+#define MULTIPATH_NEXTHOP_MAX 1000
 
 typedef struct {
   struct ifinfomsg ifi;
