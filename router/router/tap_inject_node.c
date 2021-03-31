@@ -31,6 +31,10 @@
 #endif /* FLEXIWAN_FIX */
 #include <vnet/ethernet/arp_packet.h>
 
+static u32 (*nat44_output_is_enabled_fn) (u32 sw_if_index);
+
+static u32 (*nat44_output_setup_in2out_handoff_fn) (u32* index, u16* thread_index);
+
 vlib_node_registration_t tap_inject_rx_node;
 vlib_node_registration_t tap_inject_tx_node;
 vlib_node_registration_t tap_inject_neighbor_node;
@@ -294,6 +298,7 @@ VLIB_REGISTER_NODE (tap_inject_neighbor_node) = {
 #define MTU_BUFFERS ((MTU + VLIB_BUFFER_DATA_SIZE - 1) / VLIB_BUFFER_DATA_SIZE)
 #define NUM_BUFFERS_TO_ALLOC 32
 
+
 static inline uword
 tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 {
@@ -377,21 +382,39 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
   _vec_len (im->rx_buffers) -= i;
 
-  /* Get the packet to the output node. */
-  {
-    vnet_hw_interface_t * hw;
-    vlib_frame_t * new_frame;
-    u32 * to_next;
+  vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_get_main (),
+						    sw_if_index);
+  u32 output_handoff_index = hw->output_node_index;
+  u32 nat44_output_set = 0;
+  if ((im->flags & TAP_INJECT_NAT44_OUTPUT) &&
+      (nat44_output_is_enabled_fn(sw_if_index)))
+    {
+      ethernet_header_t *eh = vlib_buffer_get_current (b);
+      if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4)
+	{
+	  nat44_output_set = 1;
+	  output_handoff_index = im->nat44_handoff_index;
+	  vnet_buffer (b)->ip.save_rewrite_length = sizeof(ethernet_header_t);
+	}
+    }
 
-    hw = vnet_get_hw_interface (vnet_get_main (), sw_if_index);
+  if ((nat44_output_set) && (im->nat44_workers_count == 1))
+    {
+      // Type is Worker queue handoff
+      vlib_buffer_enqueue_to_thread (vm, im->nat44_handoff_index, &bi[0],
+				     &im->nat44_handoff_thread_index, 1, 1);
+    }
+  else
+    {
+      vlib_frame_t * new_frame;
+      u32 * to_next;
+      new_frame = vlib_get_frame_to_node (vm, output_handoff_index);
+      to_next = vlib_frame_vector_args (new_frame);
+      to_next[0] = bi[0];
+      new_frame->n_vectors = 1;
 
-    new_frame = vlib_get_frame_to_node (vm, hw->output_node_index);
-    to_next = vlib_frame_vector_args (new_frame);
-    to_next[0] = bi[0];
-    new_frame->n_vectors = 1;
-
-    vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
-  }
+      vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
+    }
 
   return 1;
 }
@@ -464,6 +487,55 @@ const static char *const *const tap_inject_nodes[DPO_PROTO_NUM] = {
   [DPO_PROTO_IP4] = tap_inject_tx_nodes,
   [DPO_PROTO_IP6] = tap_inject_tx_nodes,
 };
+
+
+static clib_error_t *
+tap_inject_nat44_output_cli (vlib_main_t * vm, unformat_input_t * input,
+                 vlib_cli_command_t * cmd)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  nat44_output_setup_in2out_handoff_fn =
+    vlib_get_plugin_symbol ("nat_plugin.so", 
+			    "nat44_output_setup_in2out_handoff");
+  nat44_output_is_enabled_fn =
+    vlib_get_plugin_symbol ("nat_plugin.so", "nat44_output_is_enabled");
+  if (nat44_output_setup_in2out_handoff_fn && nat44_output_is_enabled_fn)
+    {
+      if (cmd->function_arg)
+       {
+	 im->nat44_workers_count = nat44_output_setup_in2out_handoff_fn
+	   (&im->nat44_handoff_index, &im->nat44_handoff_thread_index);
+	 im->flags |= TAP_INJECT_NAT44_OUTPUT;
+       }
+      else
+       {
+         im->flags &= ~TAP_INJECT_NAT44_OUTPUT;
+       }
+    }
+  else
+    {
+        return clib_error_return (0,
+            "nat_plugin check failed - nat44_output_forward cannot be enabled");
+    }
+  return 0;
+}
+
+
+VLIB_CLI_COMMAND (tap_inject_enable_nat44_output, static) = {
+  .path = "tap-inject enable-nat44-output",
+  .short_help = "Enables passing of packet to nat44 output feature",
+  .function = tap_inject_nat44_output_cli,
+  .function_arg = 1,
+};
+
+VLIB_CLI_COMMAND (tap_inject_disable_nat44_output, static) = {
+  .path = "tap-inject disable-nat44-output",
+  .short_help = "Disables passing of packet to nat44 output feature",
+  .function = tap_inject_nat44_output_cli,
+  .function_arg = 0,
+};
+
+
 
 static clib_error_t *
 tap_inject_init (vlib_main_t * vm)
