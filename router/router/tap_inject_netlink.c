@@ -277,20 +277,40 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
   vec_add1(rpaths, rpath);
 
-  if (is_del)
+  if (is_multipath)
     {
-      fib_table_entry_path_remove2(fib_index,
+      if (is_del)
+        {
+          fib_table_entry_path_remove2(fib_index,
+                                        &prefix,
+                                        FIB_SOURCE_API,
+                                        rpaths);
+        }
+      else
+        {
+          fib_table_entry_path_add2(fib_index,
                                     &prefix,
                                     FIB_SOURCE_API,
+                                    FIB_ENTRY_FLAG_NONE,
                                     rpaths);
+        }
     }
   else
     {
-      fib_table_entry_path_add2(fib_index,
-                                &prefix,
-                                FIB_SOURCE_API,
-                                FIB_ENTRY_FLAG_NONE,
-                                rpaths);
+      if (is_del)
+        {
+          fib_table_entry_delete(fib_index,
+                                 &prefix,
+                                 FIB_SOURCE_API);
+        }
+      else
+        {
+          fib_table_entry_update(fib_index,
+                                 &prefix,
+                                 FIB_SOURCE_API,
+                                 FIB_ENTRY_FLAG_NONE,
+                                 rpaths);
+        }
     }
 
   vec_free(rpaths);
