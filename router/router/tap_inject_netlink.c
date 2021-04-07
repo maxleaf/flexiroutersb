@@ -215,13 +215,14 @@ get_mpls_label_stack(struct mpls_label *addr, u32* l)
 static void
 add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_len,
              u8 *dst, struct mpls_label *encap, u8 *gateway, struct rtvia *via,
-             u32 priority, u32 weight, int is_del, u8 is_multipath)
+             u32 priority, u32 weight, int is_del)
 {
 /*#warning IPv6/MPLS is disabled for now (May-2020)*/
   if (rtm_family != AF_INET)
     return;
 
-  fib_route_path_t *rpaths = NULL, rpath;
+  fib_route_path_t *rpaths = NULL;
+  fib_route_path_t rpath = {};
   u32 stack[MPLS_STACK_DEPTH] = {0};
   fib_prefix_t prefix;
   u32 fib_index = ip4_fib_index_from_table_id (0);
@@ -242,6 +243,22 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
       rpath.frp_proto = DPO_PROTO_IP4;
       clib_memcpy(&rpath.frp_addr.ip4, gateway, sizeof(rpath.frp_addr.ip4));
+
+      /* We ignore routes that have empty gateways.
+         If it is installed, it is not removed on tap interface removal.
+         And such scenario leads to crash on installing a new route for
+         the same network as previously deleted interface.
+         Example of such issue:
+         sudo ip link set dev vpp9 down
+         sudo ip addr del 10.100.0.32 dev vpp9
+         DBGvpp# loopback delete-interface intfc loop30
+         sudo ip route add 10.100.0.32/31 via 10.100.0.29
+         As a result fib_entry_src_api_path_remove() crashes due to checking
+         previously deleted interface from stale route.
+      */
+      if (!rpath.frp_addr.ip4.as_u32) {
+        return;
+      }
 
       if(*stack != 0) {
         for(int i = 0; i < MPLS_STACK_DEPTH && stack[i] != 0; i++) {
@@ -277,40 +294,20 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
   vec_add1(rpaths, rpath);
 
-  if (is_multipath)
+  if (is_del)
     {
-      if (is_del)
-        {
-          fib_table_entry_path_remove2(fib_index,
-                                        &prefix,
-                                        FIB_SOURCE_API,
-                                        rpaths);
-        }
-      else
-        {
-          fib_table_entry_path_add2(fib_index,
+      fib_table_entry_path_remove2(fib_index,
                                     &prefix,
                                     FIB_SOURCE_API,
-                                    FIB_ENTRY_FLAG_NONE,
                                     rpaths);
-        }
     }
   else
     {
-      if (is_del)
-        {
-          fib_table_entry_delete(fib_index,
-                                 &prefix,
-                                 FIB_SOURCE_API);
-        }
-      else
-        {
-          fib_table_entry_update(fib_index,
-                                 &prefix,
-                                 FIB_SOURCE_API,
-                                 FIB_ENTRY_FLAG_NONE,
-                                 rpaths);
-        }
+      fib_table_entry_path_add2(fib_index,
+                                &prefix,
+                                FIB_SOURCE_API,
+                                FIB_ENTRY_FLAG_NONE,
+                                rpaths);
     }
 
   vec_free(rpaths);
@@ -351,7 +348,7 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, gateway,
                   (struct rtvia *)r->via,
-                  r->priority, weight, is_del, 1);
+                  r->priority, weight, is_del);
 
       rtnhp_len -= NLMSG_ALIGN(attrlen);
       nhptr = RTNH_NEXT(nhptr);
@@ -378,7 +375,7 @@ add_del_route (ns_route_t * r, int is_del)
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, r->gateway,
                   (struct rtvia *)r->via,
-                  r->priority, weight, is_del, 0);
+                  r->priority, weight, is_del);
     }
 }
 
