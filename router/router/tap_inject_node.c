@@ -82,12 +82,12 @@ tap_inject_tap_send_buffer (vlib_main_t * vm, int fd, vlib_buffer_t * b)
 
     b_curr = b;
     p_buff = reassembled_buffer;
-    while (p_buff < (reassembled_buffer + total_length))
+    do
     {
       clib_memcpy_fast(p_buff, b_curr->data + b_curr->current_data, b_curr->current_length);
       p_buff += b_curr->current_length;
-      b_curr = vlib_get_buffer (vm, b_curr->next_buffer);
-    }
+    } while ((b_curr->flags & VLIB_BUFFER_NEXT_PRESENT) &&
+       (b_curr = vlib_get_buffer (vm, b_curr->next_buffer)));
 
     iov.iov_base = reassembled_buffer;
     iov.iov_len  = total_length;
