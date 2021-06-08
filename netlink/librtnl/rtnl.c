@@ -13,6 +13,14 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2021 FlexiWAN Ltd.
+ *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
+ *   - add error callback function to handle error conditions on netlink socket
+ *      1. close/open netlink socket on error condition
+ *   - increase size of netlink socket rx buffer to allow process more events from kernel under heavy load
+ */
+
 #define _GNU_SOURCE
 #include <sched.h>
 
@@ -122,6 +130,31 @@ static clib_error_t *rtnl_read_cb(struct clib_file * f)
   vlib_process_signal_event(vm, rtnl_process_node.index, RTNL_E_READ, (uword)(ns - rm->streams));
   return 0;
 }
+
+#ifdef FLEXIWAN_FIX
+static void rtnl_sync_reset(rtnl_ns_t *ns);
+static void rtnl_sync_timeout(rtnl_ns_t *ns);
+
+static clib_error_t *rtnl_error_cb(struct clib_file * f)
+{
+  rtnl_main_t *rm = &rtnl_main;
+  rtnl_ns_t *ns = &rm->streams[f->private_data];
+  int       error = 0;
+  socklen_t errlen = sizeof(error);
+
+  if (getsockopt(ns->rtnl_socket, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen) != 0) {
+    clib_warning("rtnetlink: get socket option failed, error: %s", strerror(errno));
+  } else {
+    clib_warning("rtnetlink: read error fd (%d) stream [%s]: %s", ns->rtnl_socket, ns->stream.name, strerror(error));
+  }
+
+  rtnl_sync_reset(ns);
+  rtnl_schedule_timeout(ns, rm->now);
+  rtnl_sync_timeout(ns);
+
+  return 0;
+}
+#endif /* FLEXIWAN_FIX */
 
 int rtnl_dump_request(rtnl_ns_t *ns, int type, void *req, size_t len)
 {
@@ -235,6 +268,15 @@ static void *rtnl_thread_fn(void *p)
     return (void *) -2;
   }
 
+#ifdef FLEXIWAN_FIX
+  {
+    int size = 1024000; /* Linux double the buffer size so the final size would be 2048000 (2Mb) */
+    if(setsockopt(ns->rtnl_socket, SOL_SOCKET, SO_RCVBUF, (const void *)&size, sizeof(size)) != 0) {
+        clib_warning("rtnetlink: setsockopt error %s", strerror(errno));
+    }
+  }
+#endif /* FLEXIWAN_FIX */
+
   return NULL;
 }
 
@@ -276,6 +318,10 @@ static int rtnl_socket_open(rtnl_ns_t *ns)
 
   clib_file_t template = {0};
   template.read_function = rtnl_read_cb;
+#ifdef FLEXIWAN_FIX
+  template.error_function = rtnl_error_cb;
+  template.description = format (0, "rtnetlink sock conn fd: %d", ns->rtnl_socket);
+#endif /* FLEXIWAN_FIX */
   template.file_descriptor = ns->rtnl_socket;
   template.private_data = (uword) (ns - rm->streams);
   ns->unix_index = clib_file_add (&file_main, &template);
