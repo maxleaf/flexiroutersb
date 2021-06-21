@@ -49,12 +49,11 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   tap_inject_main_t * im = tap_inject_get_main ();
 
   vec_validate_init_empty (im->sw_if_index_to_tap_fd, sw_if_index, ~0);
-  vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
 
   vec_validate_init_empty (im->tap_fd_to_sw_if_index, tap_fd, ~0);
 
   im->sw_if_index_to_tap_fd[sw_if_index] = tap_fd;
-  im->sw_if_index_to_tap_if_index[sw_if_index] = tap_if_index;
+  hash_set(im->sw_if_index_to_tap_if_index, sw_if_index, tap_if_index);
 
   im->tap_fd_to_sw_if_index[tap_fd] = sw_if_index;
 
@@ -66,13 +65,13 @@ tap_inject_delete_tap (u32 sw_if_index)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
   u32 tap_fd = im->sw_if_index_to_tap_fd[sw_if_index];
-  u32 tap_if_index = im->sw_if_index_to_tap_if_index[sw_if_index];
+  uword *tap_if_index = hash_get(im->sw_if_index_to_tap_if_index, sw_if_index);
 
-  im->sw_if_index_to_tap_if_index[sw_if_index] = ~0;
+  hash_unset(im->sw_if_index_to_tap_if_index, sw_if_index);
   im->sw_if_index_to_tap_fd[sw_if_index] = ~0;
   im->tap_fd_to_sw_if_index[tap_fd] = ~0;
 
-  hash_unset (im->tap_if_index_to_sw_if_index, tap_if_index);
+  hash_unset (im->tap_if_index_to_sw_if_index, *(u32 *)tap_if_index);
 }
 
 u32
@@ -388,11 +387,11 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
       return 0;
     }
 
-  hash_foreach (k, v, im->tap_if_index_to_sw_if_index, {
-    vlib_cli_output (vm, "%U -> %U",
-            format_vnet_sw_interface_name, vnet_main,
-            vnet_get_sw_interface (vnet_main, v),
-            format_tap_inject_tap_name, k);
+  hash_foreach(k, v, im->sw_if_index_to_tap_if_index, {
+    vlib_cli_output(vm, "%U -> %U",
+                    format_vnet_sw_interface_name, vnet_main,
+                    vnet_get_sw_interface(vnet_main, k),
+                    format_tap_inject_tap_name, v);
   });
 
   return 0;
