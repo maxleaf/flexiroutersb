@@ -57,6 +57,13 @@ typedef struct {
 
   u32 * rx_buffers;
 
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+  u8 * sw_if_index_to_ip4_output;
+  u32 ip4_output_tap_node_index;
+  u32 ip4_output_tap_queue_index;
+  u16 ip4_output_tap_first_worker_index;
+  u16 num_workers;
+#endif /* FLEXIWAN_FEATURE */
 } tap_inject_main_t;
 
 
@@ -68,6 +75,12 @@ void tap_inject_delete_tap (u32 sw_if_index);
 u32 tap_inject_lookup_tap_fd (u32 sw_if_index);
 u32 tap_inject_lookup_sw_if_index_from_tap_fd (u32 tap_fd);
 u32 tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index);
+
+
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+u32 tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index);
+void tap_inject_set_ip4_output (u32 sw_if_index, u32 enable);
+#endif /* FLEXIWAN_FEATURE */
 
 static inline int
 tap_inject_is_enabled (void)
