@@ -19,6 +19,10 @@
  *  List of fixes made for FlexiWAN (denoted by FLEXIWAN_FIX flag):
  *   - enable VxLan decapsulation before packets are pushed into TAP
  *   - hide internally used loopback interfaces from TAP/Linux
+ *
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - nat-tap-inject-output: Support to NAT packets received from tap
+ *   interface before being put on wire
  */
 
 #include "tap_inject.h"
@@ -50,6 +54,9 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
 
   vec_validate_init_empty (im->sw_if_index_to_tap_fd, sw_if_index, ~0);
   vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
+#endif /* FLEXIWAN_FEATURE */
 
   vec_validate_init_empty (im->tap_fd_to_sw_if_index, tap_fd, ~0);
 
@@ -102,6 +109,27 @@ tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index)
   sw_if_index = hash_get (im->tap_if_index_to_sw_if_index, tap_if_index);
   return sw_if_index ? *(u32 *)sw_if_index : ~0;
 }
+
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+u32
+tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
+  return im->sw_if_index_to_ip4_output[sw_if_index];
+}
+
+void
+tap_inject_set_ip4_output (u32 sw_if_index, u32 enable)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
+  im->sw_if_index_to_ip4_output[sw_if_index] = enable;
+}
+#endif /* FLEXIWAN_FEATURE */
+
 
 /* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
@@ -403,6 +431,74 @@ VLIB_CLI_COMMAND (show_tap_inject_cmd, static) = {
   .short_help = "show tap-inject",
   .function = show_tap_inject,
 };
+
+
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+static clib_error_t *
+tap_inject_enable_ip4_output_cli (vlib_main_t * vm, unformat_input_t * input,
+			   vlib_cli_command_t * cmd)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u32 sw_if_index = ~0;
+  i32 is_del = 0;
+  clib_error_t *error = 0;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "%U", unformat_vnet_sw_interface,
+		    vnet_get_main(), &sw_if_index))
+	;
+      else if (unformat (line_input, "del"))
+	is_del = 1;
+      else
+	{
+	  error = clib_error_return (0, "unknown input '%U'",
+				     format_unformat_error, line_input);
+	  goto done;
+	}
+    }
+    if (sw_if_index == ~0)
+      {
+	error = clib_error_return (0, "Invalid sw_if_index");
+	goto done;
+      }
+
+  if (is_del)
+    {
+      tap_inject_set_ip4_output (sw_if_index, 0);
+    }
+  else
+    {
+      if (im->ip4_output_tap_node_index != ~0)
+	{
+	  if (im->ip4_output_tap_queue_index == ~0)
+	    {
+	      im->ip4_output_tap_queue_index =
+		vlib_frame_queue_main_init (im->ip4_output_tap_node_index, 0);
+	    }
+	  tap_inject_set_ip4_output (sw_if_index, 1);
+	}
+      else
+	{
+	  error = clib_error_return (0, "ip4-output-tap-inject feature not found");
+	}
+    }
+
+done:
+  unformat_free (line_input);
+  return error;
+}
+
+VLIB_CLI_COMMAND (tap_inject_ip4_output_cli, static) = {
+  .path = "tap-inject enable-ip4-output interface",
+  .short_help = "tap-inject enable-ip4-output interface <interface> [del]",
+  .function = tap_inject_enable_ip4_output_cli,
+};
+#endif /* FLEXIWAN_FEATURE */
 
 
 static clib_error_t *

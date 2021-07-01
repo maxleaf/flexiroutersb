@@ -20,6 +20,18 @@
  *   - add support in fragmented packets designated for TAP
  *   - fix b->current to enable packets received on L2GRE to be pushed into TAP
  *   - enable VxLan decapsulation before packets are pushed into TAP
+ *
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - nat-tap-inject-output: Support to NAT packets received from tap
+ *   interface before being put on wire
+ */
+
+/*
+   Details of nat-tcp-inject-output feature: This feature enables forwarding
+   packets received from tap interface to ip4-output arc so it gets the NAT
+   rules configured on the interface. Packet is passed to ip4-output arc using
+   frame queues support provided by VPP. CLI support has been added to enable
+   ip4-output forward on a per interface basis
  */
 
 #include "tap_inject.h"
@@ -284,6 +296,22 @@ VLIB_REGISTER_NODE (tap_inject_neighbor_node) = {
 };
 
 
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+static inline u32
+tap_rx_ip4_output_tap_worker_offset (tap_inject_main_t * tm, ip4_header_t * ip4)
+{
+  u32 hash;
+
+  hash = ip4->src_address.as_u32 + (ip4->src_address.as_u32 >> 8) +
+    (ip4->src_address.as_u32 >> 16) + (ip4->src_address.as_u32 >> 24);
+
+  if (PREDICT_TRUE (is_pow2 (tm->num_workers)))
+    return hash & (tm->num_workers - 1);
+  else
+    return hash % tm->num_workers;
+}
+#endif /* FLEXIWAN_FEATURE */
+
 #define MTU 1500
 #define MTU_BUFFERS ((MTU + VLIB_BUFFER_DEFAULT_DATA_SIZE - 1) / VLIB_BUFFER_DEFAULT_DATA_SIZE)
 #define NUM_BUFFERS_TO_ALLOC 32
@@ -371,6 +399,44 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
   _vec_len (im->rx_buffers) -= i;
 
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+  vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_get_main (),
+						    sw_if_index);
+  u32 output_handoff_index = hw->output_node_index;
+  u32 ip4_output_set = 0;
+  u16 ip4_output_tap_thread_index;
+  if (tap_inject_lookup_ip4_output_from_sw_if_index(sw_if_index))
+    {
+      ethernet_header_t *eh = vlib_buffer_get_current (b);
+      if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4)
+	{
+	  ip4_header_t *ip4 = vlib_buffer_get_current (b) +
+	    sizeof (ethernet_header_t);
+	  ip4_output_set = 1;
+	  output_handoff_index = im->ip4_output_tap_node_index;
+	  ip4_output_tap_thread_index = im->ip4_output_tap_first_worker_index +
+	    tap_rx_ip4_output_tap_worker_offset (im, ip4);
+          vnet_buffer (b)->ip.save_rewrite_length = sizeof (ethernet_header_t);
+	}
+    }
+
+  if ((ip4_output_set) && (im->num_workers))
+    {
+      vlib_buffer_enqueue_to_thread (vm, im->ip4_output_tap_queue_index, &bi[0],
+				     &ip4_output_tap_thread_index, 1, 1);
+    }
+  else
+    {
+      vlib_frame_t * new_frame;
+      u32 * to_next;
+      new_frame = vlib_get_frame_to_node (vm, output_handoff_index);
+      to_next = vlib_frame_vector_args (new_frame);
+      to_next[0] = bi[0];
+      new_frame->n_vectors = 1;
+
+      vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
+    }
+#else
   /* Get the packet to the output node. */
   {
     vnet_hw_interface_t * hw;
@@ -386,6 +452,8 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
     vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
   }
+
+#endif /* FLEXIWAN_FEATURE */
 
   return 1;
 }
@@ -472,6 +540,29 @@ tap_inject_init (vlib_main_t * vm)
 
   vec_alloc (im->rx_buffers, NUM_BUFFERS_TO_ALLOC);
   vec_reset_length (im->rx_buffers);
+
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+  im->ip4_output_tap_node_index = ~0;
+  im->ip4_output_tap_queue_index = ~0;
+  vlib_thread_main_t *tm = vlib_get_thread_main ();
+  uword *threads = hash_get_mem (tm->thread_registrations_by_name, "workers");
+  if (threads)
+    {
+      vlib_thread_registration_t *worker;
+      worker = (vlib_thread_registration_t *) threads[0];
+      if (worker)
+        {
+          im->ip4_output_tap_first_worker_index = worker->first_index;
+          im->num_workers = worker->count;
+        }
+    }
+
+  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *)"ip4-output-tap-inject");
+  if (node)
+    {
+      im->ip4_output_tap_node_index = node->index;
+    }
+#endif /* FLEXIWAN_FEATURE */
 
   return 0;
 }
