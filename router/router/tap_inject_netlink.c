@@ -20,7 +20,8 @@
  *   - add missing functionality: reflect route deletion in Linux into VPP FIB
  *     (handle the RTM_DELROUTE Netlink message).
  *   - fixed deletion of ARP entries on RTM_NEWNEIGH and RTM_DELNEIGH netlink
- *     messages - see add_del_neigh() function
+ *     messages - see add_del_neigh() function.
+ *   - fixed deletion of static ARP entries not installed by us.
  */
 
 #include <librtnl/netns.h>
@@ -138,7 +139,10 @@ add_del_neigh (ns_neigh_t * n, int is_del)
     }
   else if (n->nd.ndm_state & NUD_FAILED  ||  is_del==1)
     {
-      ip_neighbor_del (&ip, sw_if_index);
+      if (ip_neighbor_is_dynamic_external(&ip, sw_if_index))
+      {
+        ip_neighbor_del (&ip, sw_if_index);
+      }
     }
 }
 
