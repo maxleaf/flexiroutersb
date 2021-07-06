@@ -55,7 +55,7 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   vec_validate_init_empty (im->sw_if_index_to_tap_fd, sw_if_index, ~0);
   vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
-  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, ~0);
 #endif /* FLEXIWAN_FEATURE */
 
   vec_validate_init_empty (im->tap_fd_to_sw_if_index, tap_fd, ~0);
@@ -77,6 +77,10 @@ tap_inject_delete_tap (u32 sw_if_index)
 
   im->sw_if_index_to_tap_if_index[sw_if_index] = ~0;
   im->sw_if_index_to_tap_fd[sw_if_index] = ~0;
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+  im->sw_if_index_to_ip4_output[sw_if_index] = ~0;
+#endif /* FLEXIWAN_FEATURE */
+
   im->tap_fd_to_sw_if_index[tap_fd] = ~0;
 
   hash_unset (im->tap_if_index_to_sw_if_index, tap_if_index);
@@ -115,8 +119,6 @@ u32
 tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
-
-  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
   return im->sw_if_index_to_ip4_output[sw_if_index];
 }
 
@@ -124,8 +126,6 @@ void
 tap_inject_set_ip4_output (u32 sw_if_index, u32 enable)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
-
-  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
   im->sw_if_index_to_ip4_output[sw_if_index] = enable;
 }
 #endif /* FLEXIWAN_FEATURE */
@@ -461,12 +461,17 @@ tap_inject_enable_ip4_output_cli (vlib_main_t * vm, unformat_input_t * input,
 	  goto done;
 	}
     }
-    if (sw_if_index == ~0)
-      {
-	error = clib_error_return (0, "Invalid sw_if_index");
-	goto done;
-      }
 
+  if (sw_if_index == ~0)
+    {
+      error = clib_error_return (0, "Invalid sw_if_index");
+      goto done;
+    }
+  if (tap_inject_lookup_tap_fd(sw_if_index) == ~0)
+    {
+      error = clib_error_return (0, "The input is not a tap interface ");
+      goto done;
+    }
   if (is_del)
     {
       tap_inject_set_ip4_output (sw_if_index, 0);

@@ -29,9 +29,11 @@
 /*
    Details of nat-tcp-inject-output feature: This feature enables forwarding
    packets received from tap interface to ip4-output arc so it gets the NAT
-   rules configured on the interface. Packet is passed to ip4-output arc using
-   frame queues support provided by VPP. CLI support has been added to enable
-   ip4-output forward on a per interface basis
+   rules configured on the interface. For worker thread scenario, packets is
+   passed to ip4-output arc using frame queues support provided by VPP. Directly
+   passing packet (without frame queues) to node creates NAT entries in
+   vpp_main thread and the return packet fails in NAT lookup. CLI support has
+   been added to enable ip4-output forward on a per interface basis
  */
 
 #include "tap_inject.h"
@@ -405,7 +407,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   u32 output_handoff_index = hw->output_node_index;
   u32 ip4_output_set = 0;
   u16 ip4_output_tap_thread_index;
-  if (tap_inject_lookup_ip4_output_from_sw_if_index(sw_if_index))
+  if (tap_inject_lookup_ip4_output_from_sw_if_index(sw_if_index) != ~0)
     {
       ethernet_header_t *eh = vlib_buffer_get_current (b);
       if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4)
