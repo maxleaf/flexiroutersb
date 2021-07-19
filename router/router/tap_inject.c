@@ -474,7 +474,7 @@ tap_inject_enable_ip4_output_cli (vlib_main_t * vm, unformat_input_t * input,
     }
   if (is_del)
     {
-      tap_inject_set_ip4_output (sw_if_index, 0);
+      tap_inject_set_ip4_output (sw_if_index, ~0);
     }
   else
     {

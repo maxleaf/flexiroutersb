@@ -58,7 +58,7 @@ typedef struct {
   u32 * rx_buffers;
 
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
-  u8 * sw_if_index_to_ip4_output;
+  u32 * sw_if_index_to_ip4_output;
   u32 ip4_output_tap_node_index;
   u32 ip4_output_tap_queue_index;
   u16 ip4_output_tap_first_worker_index;
