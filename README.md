@@ -1,3 +1,7 @@
+# flexiWAN Official Repository
+
+The official respository for flexiwan is in https://gitlab.com/flexiwangroup
+
 # VPP SandBox Repository
 
 The VPP Sandbox is a temporary hosting place for small extensions, plugins, libraries or scripts related to VPP. It intends to facilitate efforts bootstrapping by providing hosting, visibility and quality code review to VPP newcomers.
