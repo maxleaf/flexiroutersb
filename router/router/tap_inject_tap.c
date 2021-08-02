@@ -67,11 +67,16 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
   if ((int)tap_fd < 0)
     return clib_error_return (0, "failed to open tun device");
 
-  name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
-
-  strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
-  ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-
+  if (clib_memcmp(hw->name, "ipip", 4) != 0) {
+    name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
+    strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+  }
+  else {
+    name = format (0, "%v", hw->name);
+    strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+  }
   if (ioctl (tap_fd, TUNSETIFF, (void *)&ifr) < 0)
     {
       close (tap_fd);
@@ -93,18 +98,21 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
       return clib_error_return (0, "failed to configure tap");
     }
 
-  if (hw->hw_address)
-    clib_memcpy (ifr.ifr_hwaddr.sa_data, hw->hw_address, ETHER_ADDR_LEN);
+  if (clib_memcmp(hw->name, "ipip", 4) != 0) {
+    if (hw->hw_address)
+      clib_memcpy (ifr.ifr_hwaddr.sa_data, hw->hw_address, ETHER_ADDR_LEN);
 
-  ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
 
-  /* Set the hardware address. */
-  if (ioctl (fd, SIOCSIFHWADDR, &ifr) < 0)
-    {
-      close (tap_fd);
-      close (fd);
-      return clib_error_return (0, "failed to set tap hardware address");
-    }
+    ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
+
+    /* Set the hardware address. */
+    if (ioctl (fd, SIOCSIFHWADDR, &ifr) < 0)
+      {
+        close (tap_fd);
+        close (fd);
+        return clib_error_return (0, "failed to set tap hardware address");
+      }
+  }
 
   /* Get the tap if index. */
   if (ioctl (fd, SIOCGIFINDEX, &ifr) < 0)

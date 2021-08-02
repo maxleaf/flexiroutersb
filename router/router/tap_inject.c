@@ -248,20 +248,23 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
   vec_foreach (hw_if_index, im->interfaces_to_enable)
     {
       hw = vnet_get_hw_interface (vnet_get_main (), *hw_if_index);
+      clib_warning("tap_inject_iface_isr: sw_if_index %u", hw->sw_if_index);
 
-      if (hw->hw_class_index == ethernet_hw_interface_class.index)
+      if (hw->hw_class_index == ethernet_hw_interface_class.index ||
+          hw->sw_if_index == 5)
         {
 #ifdef FLEXIWAN_FIX
-          if (hw->dev_class_index == gre_device_class.index ||
-              hw->dev_class_index == ipip_device_class.index)
+          if (hw->dev_class_index == gre_device_class.index)
             {
               continue;
             }
 #endif /* FLEXIWAN_FIX */
 
           err = tap_inject_tap_connect (hw);
-          if (err)
+          if (err) {
+            clib_warning("tap_inject_iface_isr: ERROR");
             break;
+          }
         }
     }
 
@@ -419,10 +422,10 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
     }
 
   hash_foreach (k, v, im->tap_if_index_to_sw_if_index, {
-    vlib_cli_output (vm, "%U -> %U",
+    vlib_cli_output (vm, "%U -> %U (%u -> %u)",
             format_vnet_sw_interface_name, vnet_main,
             vnet_get_sw_interface (vnet_main, v),
-            format_tap_inject_tap_name, k);
+            format_tap_inject_tap_name, k, v, k);
   });
 
   return 0;
