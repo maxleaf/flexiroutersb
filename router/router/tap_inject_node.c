@@ -388,7 +388,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   b->current_length = n_bytes;
 
   /* If necessary, configure any remaining buffers in the chain. */
-  for (i = 1; n_bytes_left > 0; ++i, n_bytes_left -= VLIB_BUFFER_DEFAULT_DATA_SIZE)
+  for (i = 1; n_bytes_left > 0 && i < MTU_BUFFERS; ++i, n_bytes_left -= VLIB_BUFFER_DEFAULT_DATA_SIZE)
     {
       b = vlib_get_buffer (vm, bi[i - 1]);
       b->current_length = VLIB_BUFFER_DEFAULT_DATA_SIZE;
