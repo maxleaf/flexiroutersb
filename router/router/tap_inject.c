@@ -251,7 +251,7 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
       clib_warning("tap_inject_iface_isr: sw_if_index %u", hw->sw_if_index);
 
       if (hw->hw_class_index == ethernet_hw_interface_class.index ||
-          hw->sw_if_index == 5)
+          hw->dev_class_index == ipip_device_class.index)
         {
 #ifdef FLEXIWAN_FIX
           if (hw->dev_class_index == gre_device_class.index)
