@@ -64,6 +64,9 @@ typedef struct {
   u16 ip4_output_tap_first_worker_index;
   u16 num_workers;
 #endif /* FLEXIWAN_FEATURE */
+
+  u32 * type;
+  u32 ip4_input_node_index;
 } tap_inject_main_t;
 
 
@@ -81,6 +84,9 @@ u32 tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index);
 u32 tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index);
 void tap_inject_set_ip4_output (u32 sw_if_index, u32 enable);
 #endif /* FLEXIWAN_FEATURE */
+
+u32 tap_inject_lookup_type (u32 sw_if_index);
+void tap_inject_set_type (u32 sw_if_index, u32 type);
 
 static inline int
 tap_inject_is_enabled (void)

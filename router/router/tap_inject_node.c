@@ -44,6 +44,7 @@
 #include <sys/uio.h>
 #endif /* FLEXIWAN_FIX */
 #include <vnet/ethernet/arp_packet.h>
+#include <linux/if_tun.h>
 
 vlib_node_registration_t tap_inject_rx_node;
 vlib_node_registration_t tap_inject_tx_node;
@@ -163,7 +164,8 @@ tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
       // The packet that comes out of L2-GRE Tunnel (ipsec-gre node)
       // has L2-IPSEC_ESP-L2-L3-APP structure
       // vlib_buffer_advance (b, -b->current_data);
-      vlib_buffer_advance (b, -sizeof(ethernet_header_t));
+      if (tap_inject_lookup_type(vnet_buffer (b)->sw_if_index[VLIB_RX]) == IFF_TAP)
+        vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 
       tap_inject_tap_send_buffer (vm, fd, b);
 #endif /* FLEXIWAN_FIX */
@@ -375,7 +377,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   b = vlib_get_buffer (vm, bi[0]);
 
   vnet_buffer (b)->sw_if_index[VLIB_RX] = sw_if_index;
-  if (im->sw_if_index_to_ip4_output[sw_if_index] == 1) {
+  if (tap_inject_lookup_type(sw_if_index) == IFF_TUN) {
     vnet_buffer (b)->sw_if_index[VLIB_TX] = (u32) ~ 0;
   }
   else {
@@ -420,8 +422,8 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
     to_next[0] = bi[0];
     new_frame->n_vectors = 1;
 
-    if (im->sw_if_index_to_ip4_output[sw_if_index] == 1) {
-      vlib_put_frame_to_node (vm, im->ip4_output_tap_node_index, new_frame);
+    if (tap_inject_lookup_type(sw_if_index) == IFF_TUN) {
+      vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
     }
     else {
       vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
@@ -517,6 +519,7 @@ tap_inject_init (vlib_main_t * vm)
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
   im->ip4_output_tap_node_index = ~0;
   im->ip4_output_tap_queue_index = ~0;
+  im->ip4_input_node_index = ~0;
   vlib_thread_main_t *tm = vlib_get_thread_main ();
   uword *threads = hash_get_mem (tm->thread_registrations_by_name, "workers");
   if (threads)
@@ -530,12 +533,18 @@ tap_inject_init (vlib_main_t * vm)
         }
     }
 
-  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *)"ip4-input");
-  //vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *)"ethernet-input");
+  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *)"ip4-output-tap-inject");
   if (node)
     {
       im->ip4_output_tap_node_index = node->index;
     }
+
+  node = vlib_get_node_by_name (vm, (u8 *)"ip4-input");
+  if (node)
+    {
+      im->ip4_input_node_index = node->index;
+    }
+
 #endif /* FLEXIWAN_FEATURE */
 
   return 0;

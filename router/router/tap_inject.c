@@ -129,7 +129,23 @@ tap_inject_set_ip4_output (u32 sw_if_index, u32 enable)
   tap_inject_main_t * im = tap_inject_get_main ();
   im->sw_if_index_to_ip4_output[sw_if_index] = enable;
 }
+
 #endif /* FLEXIWAN_FEATURE */
+
+u32
+tap_inject_lookup_type (u32 sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  return im->type[sw_if_index];
+}
+
+void
+tap_inject_set_type (u32 sw_if_index, u32 type)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  vec_validate_init_empty (im->type, sw_if_index, ~0);
+  im->type[sw_if_index] = type;
+}
 
 
 /* *INDENT-OFF* */

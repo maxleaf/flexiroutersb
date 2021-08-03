@@ -25,7 +25,7 @@
 #include <linux/if_tun.h>
 #include <netinet/in.h>
 #include <vnet/unix/tuntap.h>
-
+#include <vnet/ipip/ipip.h>
 #include <vlib/unix/unix.h>
 
 
@@ -67,15 +67,17 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
   if ((int)tap_fd < 0)
     return clib_error_return (0, "failed to open tun device");
 
-  if (clib_memcmp(hw->name, "ipip", 4) != 0) {
-    name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
-    strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
-    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-  }
-  else {
+  if (hw->dev_class_index == ipip_device_class.index) {
     name = format (0, "%v", hw->name);
     strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+    tap_inject_set_type(sw->sw_if_index, IFF_TUN);
+  }
+  else {
+    name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
+    strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    tap_inject_set_type(sw->sw_if_index, IFF_TAP);
   }
   if (ioctl (tap_fd, TUNSETIFF, (void *)&ifr) < 0)
     {
@@ -98,7 +100,7 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
       return clib_error_return (0, "failed to configure tap");
     }
 
-  if (clib_memcmp(hw->name, "ipip", 4) != 0) {
+  if (tap_inject_lookup_type(sw->sw_if_index) == IFF_TAP) {
     if (hw->hw_address)
       clib_memcpy (ifr.ifr_hwaddr.sa_data, hw->hw_address, ETHER_ADDR_LEN);
 
