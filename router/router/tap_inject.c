@@ -438,10 +438,10 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
     }
 
   hash_foreach (k, v, im->tap_if_index_to_sw_if_index, {
-    vlib_cli_output (vm, "%U -> %U (%u -> %u)",
+    vlib_cli_output (vm, "%U -> %U",
             format_vnet_sw_interface_name, vnet_main,
             vnet_get_sw_interface (vnet_main, v),
-            format_tap_inject_tap_name, k, v, k);
+            format_tap_inject_tap_name, k);
   });
 
   return 0;
