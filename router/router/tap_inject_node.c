@@ -409,6 +409,49 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
   _vec_len (im->rx_buffers) -= i;
 
+#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+  vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_get_main (),
+						    sw_if_index);
+  u32 output_handoff_index = hw->output_node_index;
+  u32 ip4_output_set = 0;
+  u16 ip4_output_tap_thread_index;
+  if (tap_inject_lookup_ip4_output_from_sw_if_index(sw_if_index) != ~0)
+    {
+      ethernet_header_t *eh = vlib_buffer_get_current (b);
+      if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4)
+	{
+	  ip4_header_t *ip4 = vlib_buffer_get_current (b) +
+	    sizeof (ethernet_header_t);
+	  ip4_output_set = 1;
+	  output_handoff_index = im->ip4_output_tap_node_index;
+	  ip4_output_tap_thread_index = im->ip4_output_tap_first_worker_index +
+	    tap_rx_ip4_output_tap_worker_offset (im, ip4);
+          vnet_buffer (b)->ip.save_rewrite_length = sizeof (ethernet_header_t);
+	}
+    }
+
+  if ((ip4_output_set) && (im->num_workers))
+    {
+      vlib_buffer_enqueue_to_thread (vm, im->ip4_output_tap_queue_index, &bi[0],
+				     &ip4_output_tap_thread_index, 1, 1);
+    }
+  else
+    {
+      vlib_frame_t * new_frame;
+      u32 * to_next;
+      new_frame = vlib_get_frame_to_node (vm, output_handoff_index);
+      to_next = vlib_frame_vector_args (new_frame);
+      to_next[0] = bi[0];
+      new_frame->n_vectors = 1;
+
+      if (tap_inject_lookup_type(sw_if_index) == IFF_TUN) {
+        vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
+      }
+      else {
+        vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
+      }
+    }
+#else
   /* Get the packet to the output node. */
   {
     vnet_hw_interface_t * hw;
@@ -422,13 +465,10 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
     to_next[0] = bi[0];
     new_frame->n_vectors = 1;
 
-    if (tap_inject_lookup_type(sw_if_index) == IFF_TUN) {
-      vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
-    }
-    else {
-      vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
-    }
+    vlib_put_frame_to_node (vm, hw->output_node_index, new_frame);
   }
+
+#endif /* FLEXIWAN_FEATURE */
 
   return 1;
 }
