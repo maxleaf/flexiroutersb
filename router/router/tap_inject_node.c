@@ -41,6 +41,7 @@
 #include <netinet/in.h>
 #include <vlib/vlib.h>
 #ifdef FLEXIWAN_FIX
+#include <arpa/inet.h>
 #include <sys/uio.h>
 #include <vnet/dpo/load_balance_map.h>
 #include <vnet/fib/fib_path_list.h>
@@ -336,20 +337,50 @@ calculate_next_node (vlib_buffer_t * b)
   ip4_fib_mtrie_t*      mtrie0 = NULL;
   ip4_fib_mtrie_leaf_t  leaf0;
   const dpo_id_t*       dpo0 = NULL;
+  u32                   hash_c0;
+  flow_hash_config_t    flow_hash_config0;
 
   ip40 = vlib_buffer_get_current (b);
+
+  struct sockaddr_in sa;
+  char str[INET_ADDRSTRLEN];
+  clib_memcpy(&sa.sin_addr.s_addr, &ip40->dst_address, sizeof(sa.sin_addr.s_addr));
+  inet_ntop(AF_INET, &(sa.sin_addr), str, INET_ADDRSTRLEN);
+
+  clib_warning("ip40->dst_address: %s", str);
+
   ip_lookup_set_buffer_fib_index (ipm->fib_index_by_sw_if_index, b);
   clib_warning("fib_index %u", vnet_buffer (b)->ip.fib_index);
   mtrie0 = &ip4_fib_get (vnet_buffer (b)->ip.fib_index)->mtrie;
+
   leaf0 = ip4_fib_mtrie_lookup_step_one (mtrie0, &ip40->dst_address);
   leaf0 = ip4_fib_mtrie_lookup_step (mtrie0, leaf0, &ip40->dst_address, 2);
   leaf0 = ip4_fib_mtrie_lookup_step (mtrie0, leaf0, &ip40->dst_address, 3);
-
   lbi0  = ip4_fib_mtrie_leaf_get_adj_index (leaf0);
-  ASSERT (lbi0);
+  clib_warning("lbi0 %u", lbi0);
   lb0 = load_balance_get(lbi0);
-  dpo0 = load_balance_get_bucket_i (lb0, 0);
-  vnet_buffer (b)->ip.adj_index[VLIB_TX] = dpo0->dpoi_index;
+  clib_warning("lb0->lb_n_buckets %u", lb0->lb_n_buckets);
+
+  hash_c0 = vnet_buffer (b)->ip.flow_hash = 0;
+  if (PREDICT_FALSE (lb0->lb_n_buckets > 1))
+    {
+      /* Use flow hash to compute multipath adjacency. */
+      flow_hash_config0 = lb0->lb_hash_config;
+      hash_c0 = vnet_buffer (b)->ip.flow_hash =
+                ip4_compute_flow_hash (ip40, flow_hash_config0);
+      dpo0 = load_balance_get_fwd_bucket (lb0,
+                      (hash_c0 & (lb0->lb_n_buckets_minus_1)));
+    }
+  else
+    {
+      dpo0 = load_balance_get_bucket_i (lb0, 0);
+    }
+
+  vnet_buffer (b)->ip.adj_index[VLIB_TX] = dpo0->dpoi_next_node;
+  clib_warning("dpo0->dpoi_index %u", dpo0->dpoi_index);
+
+  b->flags |= VNET_BUFFER_F_OFFLOAD_IP_CKSUM;
+  ip40->checksum = 0;
 
   return dpo0->dpoi_next_node;
 }
@@ -479,11 +510,11 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
       new_frame->n_vectors = 1;
 
       if (tap_inject_lookup_type(sw_if_index) == IFF_TUN) {
-        output_handoff_index = calculate_next_node(b);
+        calculate_next_node(b);
         clib_warning("output_handoff_index %u, im->ip4_input_node_index %u",
                      output_handoff_index, im->ip4_input_node_index);
 
-        vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
+        vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
       }
       else {
         vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
@@ -611,16 +642,29 @@ tap_inject_init (vlib_main_t * vm)
         }
     }
 
-  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *)"ip4-output-tap-inject");
+  vlib_node_t *node = vlib_get_node_by_name (vm, (u8 *)"ip4-midchain");
   if (node)
     {
       im->ip4_output_tap_node_index = node->index;
     }
 
-  node = vlib_get_node_by_name (vm, (u8 *)"ip4-input");
+  node = vlib_get_node_by_name (vm, (u8 *)"ip4-midchain");
   if (node)
     {
       im->ip4_input_node_index = node->index;
+      clib_warning("ip4-input index is %u", node->index);
+    }
+
+  node = vlib_get_node_by_name (vm, (u8 *)"ip4-lookup");
+  if (node)
+    {
+      clib_warning("ip4-lookup index is %u", node->index);
+    }
+
+  node = vlib_get_node_by_name (vm, (u8 *)"ip4-midchain");
+  if (node)
+    {
+      clib_warning("ip4-midchain index is %u", node->index);
     }
 
 #endif /* FLEXIWAN_FEATURE */
