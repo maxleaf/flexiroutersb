@@ -337,8 +337,9 @@ calculate_next_node (vlib_buffer_t * b)
   ip4_fib_mtrie_leaf_t  leaf0;
   const dpo_id_t*       dpo0 = NULL;
 
-  ip40 = vlib_buffer_get_current (b) + sizeof (ethernet_header_t);
+  ip40 = vlib_buffer_get_current (b);
   ip_lookup_set_buffer_fib_index (ipm->fib_index_by_sw_if_index, b);
+  clib_warning("fib_index %u", vnet_buffer (b)->ip.fib_index);
   mtrie0 = &ip4_fib_get (vnet_buffer (b)->ip.fib_index)->mtrie;
   leaf0 = ip4_fib_mtrie_lookup_step_one (mtrie0, &ip40->dst_address);
   leaf0 = ip4_fib_mtrie_lookup_step (mtrie0, leaf0, &ip40->dst_address, 2);
