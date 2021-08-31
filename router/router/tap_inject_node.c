@@ -42,6 +42,11 @@
 #include <vlib/vlib.h>
 #ifdef FLEXIWAN_FIX
 #include <sys/uio.h>
+#include <vnet/dpo/load_balance_map.h>
+#include <vnet/fib/fib_path_list.h>
+#include <vnet/fib/ip4_fib.h>
+#include <vnet/ip/ip4_mtrie.h>
+#include <vnet/ip/ip4_inlines.h>
 #endif /* FLEXIWAN_FIX */
 #include <vnet/ethernet/arp_packet.h>
 #include <linux/if_tun.h>
@@ -320,6 +325,34 @@ tap_rx_ip4_output_tap_worker_offset (tap_inject_main_t * tm, ip4_header_t * ip4)
 #define MTU_BUFFERS ((MTU + VLIB_BUFFER_DEFAULT_DATA_SIZE - 1) / VLIB_BUFFER_DEFAULT_DATA_SIZE)
 #define NUM_BUFFERS_TO_ALLOC 32
 
+
+static inline u16
+calculate_next_node (vlib_buffer_t * b)
+{
+  ip4_main_t * ipm = &ip4_main;
+  u32                   lbi0 = 0;
+  const load_balance_t* lb0 = NULL;
+  ip4_header_t*         ip40 = NULL;
+  ip4_fib_mtrie_t*      mtrie0 = NULL;
+  ip4_fib_mtrie_leaf_t  leaf0;
+  const dpo_id_t*       dpo0 = NULL;
+
+  ip40 = vlib_buffer_get_current (b) + sizeof (ethernet_header_t);
+  ip_lookup_set_buffer_fib_index (ipm->fib_index_by_sw_if_index, b);
+  mtrie0 = &ip4_fib_get (vnet_buffer (b)->ip.fib_index)->mtrie;
+  leaf0 = ip4_fib_mtrie_lookup_step_one (mtrie0, &ip40->dst_address);
+  leaf0 = ip4_fib_mtrie_lookup_step (mtrie0, leaf0, &ip40->dst_address, 2);
+  leaf0 = ip4_fib_mtrie_lookup_step (mtrie0, leaf0, &ip40->dst_address, 3);
+
+  lbi0  = ip4_fib_mtrie_leaf_get_adj_index (leaf0);
+  ASSERT (lbi0);
+  lb0 = load_balance_get(lbi0);
+  dpo0 = load_balance_get_bucket_i (lb0, 0);
+  vnet_buffer (b)->ip.adj_index[VLIB_TX] = dpo0->dpoi_index;
+
+  return dpo0->dpoi_next_node;
+}
+
 static inline uword
 tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 {
@@ -445,7 +478,11 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
       new_frame->n_vectors = 1;
 
       if (tap_inject_lookup_type(sw_if_index) == IFF_TUN) {
-        vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
+        output_handoff_index = calculate_next_node(b);
+        clib_warning("output_handoff_index %u, im->ip4_input_node_index %u",
+                     output_handoff_index, im->ip4_input_node_index);
+
+        vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
       }
       else {
         vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
