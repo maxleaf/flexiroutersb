@@ -248,6 +248,20 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
       rpath.frp_proto = DPO_PROTO_IP4;
       clib_memcpy(&rpath.frp_addr.ip4, gateway, sizeof(rpath.frp_addr.ip4));
 
+#ifdef FLEXIWAN_DEBUG
+      struct sockaddr_in sa;
+      char str[INET_ADDRSTRLEN];
+      clib_memcpy(&sa.sin_addr.s_addr, &rpath.frp_addr.ip4, sizeof(rpath.frp_addr.ip4));
+      inet_ntop(AF_INET, &(sa.sin_addr), str, INET_ADDRSTRLEN);
+
+      struct sockaddr_in sa2;
+      char dst_str[INET_ADDRSTRLEN];
+      clib_memcpy(&sa2.sin_addr.s_addr, &prefix.fp_addr.ip4, sizeof(prefix.fp_addr.ip4));
+      inet_ntop(AF_INET, &(sa2.sin_addr), dst_str, INET_ADDRSTRLEN);
+
+      clib_warning("%s: %s via %s, is_del %u\n", __FUNCTION__, dst_str, str, is_del);
+#endif
+
       /* We ignore routes that have empty gateways.
          If it is installed, it is not removed on tap interface removal.
          And such scenario leads to crash on installing a new route for
@@ -348,6 +362,11 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
       if (sw_if_index == ~0)
         return;
 
+      u32 new_sw_if_index = tap_inject_map_interface_get(sw_if_index);
+      if (new_sw_if_index != ~0) {
+        sw_if_index = new_sw_if_index;
+      }
+
       add_del_fib(sw_if_index, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, gateway,
@@ -375,6 +394,11 @@ add_del_route (ns_route_t * r, int is_del)
       if (sw_if_index == ~0)
         return;
 
+      u32 new_sw_if_index = tap_inject_map_interface_get(sw_if_index);
+      if (new_sw_if_index != ~0) {
+        sw_if_index = new_sw_if_index;
+      }
+
       add_del_fib(sw_if_index, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, r->gateway,
@@ -386,6 +410,10 @@ add_del_route (ns_route_t * r, int is_del)
 static void
 netns_notify_cb (void * obj, netns_type_t type, u32 flags, uword opaque)
 {
+#ifdef FLEXIWAN_DEBUG
+  clib_warning("%s: type %u, flags %x", __FUNCTION__, type, flags);
+#endif
+
   if (type == NETNS_TYPE_ADDR)
     add_del_addr ((ns_addr_t *)obj, flags & NETNS_F_DEL);
 

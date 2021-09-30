@@ -45,6 +45,12 @@ typedef struct {
   u32 * sw_if_index_to_tap_if_index;
   u32 * tap_fd_to_sw_if_index;
   u32 * tap_if_index_to_sw_if_index;
+  /*
+   * sw_if_index_to_sw_if_index array is used to map between loopX and ipipX interfaces.
+   * It is used in Flexiwan peer tunnel feature to install ip routes from Linux.
+   * Meaning that all routes created against loopX (vppX) in Linux will be installed in VPP against ipipX.
+   */
+  u32 * sw_if_index_to_sw_if_index;
 
   u32 * interfaces_to_enable;
   u32 * interfaces_to_disable;
@@ -64,6 +70,9 @@ typedef struct {
   u16 ip4_output_tap_first_worker_index;
   u16 num_workers;
 #endif /* FLEXIWAN_FEATURE */
+
+  u32 * type;
+  u32 ip4_input_node_index;
 } tap_inject_main_t;
 
 
@@ -71,6 +80,10 @@ tap_inject_main_t * tap_inject_get_main (void);
 
 void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index);
 void tap_inject_delete_tap (u32 sw_if_index);
+
+void tap_inject_map_interface_set (u32 src_sw_if_index, u32 dst_sw_if_index);
+void tap_inject_map_interface_delete (u32 src_sw_if_index, u32 dst_sw_if_index);
+u32 tap_inject_map_interface_get (u32 sw_if_index);
 
 u32 tap_inject_lookup_tap_fd (u32 sw_if_index);
 u32 tap_inject_lookup_sw_if_index_from_tap_fd (u32 tap_fd);
@@ -81,6 +94,9 @@ u32 tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index);
 u32 tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index);
 void tap_inject_set_ip4_output (u32 sw_if_index, u32 enable);
 #endif /* FLEXIWAN_FEATURE */
+
+u32 tap_inject_type_get (u32 sw_if_index);
+void tap_inject_type_set (u32 sw_if_index, u32 type);
 
 static inline int
 tap_inject_is_enabled (void)

@@ -44,6 +44,7 @@
 #include <sys/uio.h>
 #endif /* FLEXIWAN_FIX */
 #include <vnet/ethernet/arp_packet.h>
+#include <linux/if_tun.h>
 
 vlib_node_registration_t tap_inject_rx_node;
 vlib_node_registration_t tap_inject_tx_node;
@@ -163,7 +164,11 @@ tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
       // The packet that comes out of L2-GRE Tunnel (ipsec-gre node)
       // has L2-IPSEC_ESP-L2-L3-APP structure
       // vlib_buffer_advance (b, -b->current_data);
-      vlib_buffer_advance (b, -sizeof(ethernet_header_t));
+      // The adjustment is needed for TAP and not for TUN. As far as TUN works
+      // with pure IP packets with ethernet header on top.
+      // Note that currently TUN is used for Flexiwan peer tunnels only.
+      if (tap_inject_type_get(vnet_buffer (b)->sw_if_index[VLIB_RX]) == IFF_TAP)
+        vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 
       tap_inject_tap_send_buffer (vm, fd, b);
 #endif /* FLEXIWAN_FIX */
@@ -375,7 +380,16 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   b = vlib_get_buffer (vm, bi[0]);
 
   vnet_buffer (b)->sw_if_index[VLIB_RX] = sw_if_index;
-  vnet_buffer (b)->sw_if_index[VLIB_TX] = sw_if_index;
+  // TX interface index is needed for TAP type because the packets
+  // are inserted in output node.
+  // But in case of TUN (used for Flexiwan peer tunnels) packets are inserted in ip4-input node
+  // and no TX interafce should be known on this stage.
+  if (tap_inject_type_get(sw_if_index) == IFF_TUN) {
+    vnet_buffer (b)->sw_if_index[VLIB_TX] = (u32) ~ 0;
+  }
+  else {
+    vnet_buffer (b)->sw_if_index[VLIB_TX] = sw_if_index;
+  }
 
   n_bytes_left = n_bytes - VLIB_BUFFER_DEFAULT_DATA_SIZE;
 
@@ -386,6 +400,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
     }
 
   b->current_length = n_bytes;
+  b->error = node->errors[0];
 
   /* If necessary, configure any remaining buffers in the chain. */
   for (i = 1; n_bytes_left > 0 && i < MTU_BUFFERS; ++i, n_bytes_left -= VLIB_BUFFER_DEFAULT_DATA_SIZE)
@@ -436,7 +451,14 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
       to_next[0] = bi[0];
       new_frame->n_vectors = 1;
 
-      vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
+      // For TAP type the packets are inserted into output node.
+      // But in case of TUN (used for Flexiwan peer tunnels) packets are inserted in ip4-input node.
+      if (tap_inject_type_get(sw_if_index) == IFF_TUN) {
+        vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
+      }
+      else {
+        vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
+      }
     }
 #else
   /* Get the packet to the output node. */
@@ -546,6 +568,7 @@ tap_inject_init (vlib_main_t * vm)
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
   im->ip4_output_tap_node_index = ~0;
   im->ip4_output_tap_queue_index = ~0;
+  im->ip4_input_node_index = ~0;
   vlib_thread_main_t *tm = vlib_get_thread_main ();
   uword *threads = hash_get_mem (tm->thread_registrations_by_name, "workers");
   if (threads)
@@ -564,6 +587,13 @@ tap_inject_init (vlib_main_t * vm)
     {
       im->ip4_output_tap_node_index = node->index;
     }
+
+  node = vlib_get_node_by_name (vm, (u8 *)"ip4-input");
+  if (node)
+    {
+      im->ip4_input_node_index = node->index;
+    }
+
 #endif /* FLEXIWAN_FEATURE */
 
   return 0;
