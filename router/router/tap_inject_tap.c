@@ -25,7 +25,6 @@
 #include <linux/if_tun.h>
 #include <netinet/in.h>
 #include <vnet/unix/tuntap.h>
-
 #include <vlib/unix/unix.h>
 
 
@@ -68,9 +67,17 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
     return clib_error_return (0, "failed to open tun device");
 
   name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
-
   strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
-  ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+  // TUN type is chosen for a new TAP that was not assigned MAC address explicitly.
+  // In VPP the default MAC address for a new interface always starts from 0xde.
+  if (hw->hw_address[0] == 0xde) {
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+    tap_inject_type_set(sw->sw_if_index, IFF_TUN);
+  }
+  else {
+    ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+    tap_inject_type_set(sw->sw_if_index, IFF_TAP);
+  }
 
   if (ioctl (tap_fd, TUNSETIFF, (void *)&ifr) < 0)
     {
@@ -93,18 +100,22 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
       return clib_error_return (0, "failed to configure tap");
     }
 
-  if (hw->hw_address)
-    clib_memcpy (ifr.ifr_hwaddr.sa_data, hw->hw_address, ETHER_ADDR_LEN);
+  // MAC address is relevant for TAP type but not for TUN.
+  if (tap_inject_type_get(sw->sw_if_index) == IFF_TAP) {
+    if (hw->hw_address)
+      clib_memcpy (ifr.ifr_hwaddr.sa_data, hw->hw_address, ETHER_ADDR_LEN);
 
-  ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
 
-  /* Set the hardware address. */
-  if (ioctl (fd, SIOCSIFHWADDR, &ifr) < 0)
-    {
-      close (tap_fd);
-      close (fd);
-      return clib_error_return (0, "failed to set tap hardware address");
-    }
+    ifr.ifr_hwaddr.sa_family = ARPHRD_ETHER;
+
+    /* Set the hardware address. */
+    if (ioctl (fd, SIOCSIFHWADDR, &ifr) < 0)
+      {
+        close (tap_fd);
+        close (fd);
+        return clib_error_return (0, "failed to set tap hardware address");
+      }
+  }
 
   /* Get the tap if index. */
   if (ioctl (fd, SIOCGIFINDEX, &ifr) < 0)

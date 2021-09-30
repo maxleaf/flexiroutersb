@@ -68,6 +68,37 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   hash_set (im->tap_if_index_to_sw_if_index, tap_if_index, sw_if_index);
 }
 
+void tap_inject_map_interface_set (u32 src_sw_if_index, u32 dst_sw_if_index)
+{
+  tap_inject_main_t *im = tap_inject_get_main();
+
+  vec_validate_init_empty (im->sw_if_index_to_sw_if_index, src_sw_if_index, ~0);
+  im->sw_if_index_to_sw_if_index[src_sw_if_index] =  dst_sw_if_index;
+
+  vec_validate_init_empty (im->sw_if_index_to_tap_fd, dst_sw_if_index, ~0);
+  im->sw_if_index_to_tap_fd[dst_sw_if_index] = im->sw_if_index_to_tap_fd[src_sw_if_index];
+}
+
+void tap_inject_map_interface_delete (u32 src_sw_if_index, u32 dst_sw_if_index)
+{
+  tap_inject_main_t *im = tap_inject_get_main();
+
+  im->sw_if_index_to_tap_fd[dst_sw_if_index] = ~0;
+
+  im->sw_if_index_to_sw_if_index[src_sw_if_index] = ~0;
+}
+
+u32 tap_inject_map_interface_get (u32 sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  u32 new_sw_if_index = ~0;
+
+  vec_validate_init_empty (im->sw_if_index_to_sw_if_index, sw_if_index, ~0);
+  new_sw_if_index = im->sw_if_index_to_sw_if_index[sw_if_index];
+
+  return new_sw_if_index;
+}
+
 void
 tap_inject_delete_tap (u32 sw_if_index)
 {
@@ -82,6 +113,8 @@ tap_inject_delete_tap (u32 sw_if_index)
 #endif /* FLEXIWAN_FEATURE */
 
   im->tap_fd_to_sw_if_index[tap_fd] = ~0;
+  im->sw_if_index_to_sw_if_index[sw_if_index] = ~0;
+  im->type[sw_if_index] = ~0;
 
   hash_unset (im->tap_if_index_to_sw_if_index, tap_if_index);
 }
@@ -128,7 +161,24 @@ tap_inject_set_ip4_output (u32 sw_if_index, u32 enable)
   tap_inject_main_t * im = tap_inject_get_main ();
   im->sw_if_index_to_ip4_output[sw_if_index] = enable;
 }
+
 #endif /* FLEXIWAN_FEATURE */
+
+u32
+tap_inject_type_get (u32 sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  ASSERT (sw_if_index < vec_len (im->type));
+  return im->type[sw_if_index];
+}
+
+void
+tap_inject_type_set (u32 sw_if_index, u32 type)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  vec_validate_init_empty (im->type, sw_if_index, ~0);
+  im->type[sw_if_index] = type;
+}
 
 
 /* *INDENT-OFF* */
@@ -243,6 +293,7 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
   vnet_hw_interface_t * hw;
   u32 * hw_if_index;
   clib_error_t * err = 0;
+  int rv = 0;
 
   vec_foreach (hw_if_index, im->interfaces_to_enable)
     {
@@ -258,8 +309,11 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
 #endif /* FLEXIWAN_FIX */
 
           err = tap_inject_tap_connect (hw);
-          if (err)
+          if (err) {
+            rv = clib_error_get_code (err);
+            clib_error("tap_inject_iface_isr: error code %u", rv);
             break;
+          }
         }
     }
 
@@ -503,6 +557,109 @@ VLIB_CLI_COMMAND (tap_inject_ip4_output_cli, static) = {
   .short_help = "tap-inject enable-ip4-output interface <interface> [del]",
   .function = tap_inject_enable_ip4_output_cli,
 };
+
+static clib_error_t *
+tap_inject_map_interface_cli(vlib_main_t *vm, unformat_input_t *input,
+                             vlib_cli_command_t *cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u32 src_sw_if_index = ~0;
+  u32 dst_sw_if_index = ~0;
+  i32 is_del = 0;
+  clib_error_t *error = 0;
+
+  if (!unformat_user(input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input(line_input) != UNFORMAT_END_OF_INPUT)
+  {
+    if (unformat(line_input, "%U %U",
+                 unformat_vnet_sw_interface, vnet_get_main(), &src_sw_if_index,
+                 unformat_vnet_sw_interface, vnet_get_main(), &dst_sw_if_index))
+      ;
+    else if (unformat(line_input, "del"))
+      is_del = 1;
+    else
+    {
+      error = clib_error_return(0, "unknown input '%U'",
+                                format_unformat_error, line_input);
+      goto done;
+    }
+  }
+
+  if (src_sw_if_index == ~0)
+  {
+    error = clib_error_return(0, "Invalid source sw_if_index");
+    goto done;
+  }
+
+  if (dst_sw_if_index == ~0)
+  {
+    error = clib_error_return(0, "Invalid destination sw_if_index");
+    goto done;
+  }
+
+  if (is_del)
+  {
+    tap_inject_map_interface_delete(src_sw_if_index, dst_sw_if_index);
+  }
+  else
+  {
+    tap_inject_map_interface_set(src_sw_if_index, dst_sw_if_index);
+  }
+
+done:
+  unformat_free(line_input);
+  return error;
+}
+
+VLIB_CLI_COMMAND(tap_inject_map_interface_cmd, static) = {
+    .path = "tap-inject map interface",
+    .short_help = "tap-inject map interface <interface_src> <interface_dst> [del]",
+    .function = tap_inject_map_interface_cli,
+};
+
+static clib_error_t *
+show_tap_inject_map_interface_cli (vlib_main_t * vm, unformat_input_t * input,
+                                   vlib_cli_command_t * cmd)
+{
+  vnet_main_t * vnet_main = vnet_get_main ();
+  tap_inject_main_t * im = tap_inject_get_main ();
+  int i;
+
+  if (tap_inject_is_config_disabled ())
+    {
+      vlib_cli_output (vm, "tap-inject is disabled in config.\n");
+      return 0;
+    }
+
+  if (!tap_inject_is_enabled ())
+    {
+      vlib_cli_output (vm, "tap-inject is not enabled.\n");
+      return 0;
+    }
+
+  for (i = 0; i < vec_len(im->sw_if_index_to_sw_if_index); i++)
+    {
+      if (im->sw_if_index_to_sw_if_index[i] == ~0)
+        continue;
+
+      vlib_cli_output (vm, "%U -> %U",
+            format_vnet_sw_interface_name, vnet_main,
+            vnet_get_sw_interface (vnet_main, i),
+            format_vnet_sw_interface_name, vnet_main,
+            vnet_get_sw_interface (vnet_main, im->sw_if_index_to_sw_if_index[i]));
+    }
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (show_tap_inject_map_interface_cmd, static) = {
+  .path = "show tap-inject map interface",
+  .short_help = "show tap-inject map interface",
+  .function = show_tap_inject_map_interface_cli,
+};
+
 #endif /* FLEXIWAN_FEATURE */
 
 
