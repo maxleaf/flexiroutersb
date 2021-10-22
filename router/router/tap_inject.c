@@ -22,7 +22,8 @@
  *
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - nat-tap-inject-output: Support to NAT packets received from tap
- *   interface before being put on wire
+ *     interface before being put on wire
+ *   - show tap-inject [name|tap|sw_if_index]: dump tap-inject info for specific interface
  */
 
 #include "tap_inject.h"
@@ -48,7 +49,11 @@ tap_inject_get_main (void)
 }
 
 void
-tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
+#ifdef FLEXIWAN_FEATURE
+void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index, u8* tap_if_name)
+#else
+void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
+#endif /* FLEXIWAN_FEATURE */
 {
   tap_inject_main_t * im = tap_inject_get_main ();
 
@@ -56,6 +61,13 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
   vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, ~0);
+  vec_validate_init_empty (im->sw_if_index_to_tap_name, sw_if_index, 0);
+  im->sw_if_index_to_tap_name[sw_if_index] = tap_if_name;
+  if (!im->tap_if_index_by_name)
+    im->tap_if_index_by_name = hash_create_vec ( /* size */ 0,
+						sizeof (tap_if_name[0]),
+						sizeof (uword));
+  hash_set_mem (im->tap_if_index_by_name, tap_if_name, tap_if_index);
 #endif /* FLEXIWAN_FEATURE */
 
   vec_validate_init_empty (im->tap_fd_to_sw_if_index, tap_fd, ~0);
@@ -105,11 +117,21 @@ tap_inject_delete_tap (u32 sw_if_index)
   tap_inject_main_t * im = tap_inject_get_main ();
   u32 tap_fd = im->sw_if_index_to_tap_fd[sw_if_index];
   u32 tap_if_index = im->sw_if_index_to_tap_if_index[sw_if_index];
+#ifdef FLEXIWAN_FEATURE
+  u8 * tap_if_name = im->sw_if_index_to_tap_name[sw_if_index];
+#endif /* FLEXIWAN_FEATURE */
 
   im->sw_if_index_to_tap_if_index[sw_if_index] = ~0;
   im->sw_if_index_to_tap_fd[sw_if_index] = ~0;
-#ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
+#ifdef FLEXIWAN_FEATURE
   im->sw_if_index_to_ip4_output[sw_if_index] = ~0;
+  
+  if (tap_if_name != NULL)
+    {
+      hash_unset_mem (im->tap_if_index_by_name, tap_if_name);
+      im->sw_if_index_to_tap_name[sw_if_index] = NULL;
+      vec_free(tap_if_name);
+    }
 #endif /* FLEXIWAN_FEATURE */
 
   im->tap_fd_to_sw_if_index[tap_fd] = ~0;
@@ -457,6 +479,13 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
   vnet_main_t * vnet_main = vnet_get_main ();
   tap_inject_main_t * im = tap_inject_get_main ();
   u32 k, v;
+#ifdef FLEXIWAN_FIX
+  u32     sw_if_index = INDEX_INVALID;
+  u32     tap_if_index = INDEX_INVALID;
+  u8    * tap_if_name = 0;
+  uword * p_tap_if_index;
+  uword * p_sw_if_index;
+#endif /*#ifdef FLEXIWAN_FIX*/
 
   if (tap_inject_is_config_disabled ())
     {
@@ -470,6 +499,55 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
       return 0;
     }
 
+#ifdef FLEXIWAN_FIX
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "sw_if_index %d", &sw_if_index))
+        ;
+      else if (unformat (input, "tap %s", &tap_if_name))
+        ;
+      else if (unformat (input, "%U",
+                         unformat_vnet_sw_interface, vnet_main, &sw_if_index))
+        ;
+      else
+        return (clib_error_return (0, "unknown input '%U'",
+				                           format_unformat_error, input));
+    }
+
+  if (sw_if_index != INDEX_INVALID)
+    {
+        if (PREDICT_FALSE(vec_len(im->sw_if_index_to_tap_if_index) <= sw_if_index))
+            return (clib_error_return (0, "sw_if_index %d not found", sw_if_index));
+        tap_if_index = im->sw_if_index_to_tap_if_index[sw_if_index];
+        if (PREDICT_FALSE(tap_if_index == INDEX_INVALID))
+            return (clib_error_return (0, "no tap was found for sw_if_index %d", sw_if_index));
+        vlib_cli_output (vm, "%U -> %U",
+                format_vnet_sw_interface_name, vnet_main,
+                vnet_get_sw_interface (vnet_main, sw_if_index),
+                format_tap_inject_tap_name, tap_if_index);
+        return 0;
+    }
+  else if (tap_if_name)
+    {
+      p_tap_if_index = hash_get (im->tap_if_index_by_name, tap_if_name);
+      if (PREDICT_FALSE(p_tap_if_index == 0))
+        return (clib_error_return (0, "no tap was found for tap_if_name=%s", tap_if_name));
+      tap_if_index = p_tap_if_index[0];
+
+      p_sw_if_index = hash_get (im->tap_if_index_to_sw_if_index, tap_if_index);
+      if (PREDICT_FALSE(p_sw_if_index == 0))
+        return (clib_error_return (0, "no sw_if_index was found for tap_if_name=%s(%d)",
+            tap_if_name, tap_if_index));
+      sw_if_index = p_sw_if_index[0];
+
+      vlib_cli_output (vm, "%U -> %s",
+              format_vnet_sw_interface_name, vnet_main,
+              vnet_get_sw_interface (vnet_main, sw_if_index), tap_if_name);
+      return 0;
+    }
+#endif /*#ifdef FLEXIWAN_FIX*/
+
   hash_foreach (k, v, im->tap_if_index_to_sw_if_index, {
     vlib_cli_output (vm, "%U -> %U",
             format_vnet_sw_interface_name, vnet_main,
@@ -482,7 +560,7 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
 
 VLIB_CLI_COMMAND (show_tap_inject_cmd, static) = {
   .path = "show tap-inject",
-  .short_help = "show tap-inject",
+  .short_help = "show tap-inject [<if name> | sw_if_index <sw_if_index> | tap <name in linux>]",
   .function = show_tap_inject,
 };
 

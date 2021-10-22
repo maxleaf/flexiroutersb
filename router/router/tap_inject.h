@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2021 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - nat-tap-inject-output: Support to NAT packets received from tap
+ *     interface before being put on wire
+ *   - show tap-inject [name|tap|sw_if_index]: dump tap-inject info for specific interface
+ */
+
 #ifndef _TAP_INJECT_H
 #define _TAP_INJECT_H
 
@@ -51,6 +59,10 @@ typedef struct {
    * Meaning that all routes created against loopX (vppX) in Linux will be installed in VPP against ipipX.
    */
   u32 * sw_if_index_to_sw_if_index;
+#ifdef FLEXIWAN_FEATURE
+  u8* * sw_if_index_to_tap_name; /*vector that maps sw_if_index into tap name*/
+  uword * tap_if_index_by_name;  /*hash that maps tap name into tap index*/
+#endif /* FLEXIWAN_FEATURE */
 
   u32 * interfaces_to_enable;
   u32 * interfaces_to_disable;
@@ -78,7 +90,11 @@ typedef struct {
 
 tap_inject_main_t * tap_inject_get_main (void);
 
+#ifdef FLEXIWAN_FEATURE
+void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index, u8* tap_if_name);
+#else
 void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index);
+#endif /* FLEXIWAN_FEATURE */
 void tap_inject_delete_tap (u32 sw_if_index);
 
 void tap_inject_map_interface_set (u32 src_sw_if_index, u32 dst_sw_if_index);

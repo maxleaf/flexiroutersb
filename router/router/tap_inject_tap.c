@@ -133,8 +133,11 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
 
   clib_file_add (&file_main, &template);
 
+#ifdef FLEXIWAN_FEATURE
+  tap_inject_insert_tap (sw->sw_if_index, tap_fd, ifr.ifr_ifindex, name);
+#else
   tap_inject_insert_tap (sw->sw_if_index, tap_fd, ifr.ifr_ifindex);
-
+#endif  /*#ifdef FLEXIWAN_FEATURE*/
   return 0;
 }
 
