@@ -50,9 +50,9 @@ tap_inject_get_main (void)
 
 void
 #ifdef FLEXIWAN_FEATURE
-void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index, u8* tap_if_name)
+tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index, u8* tap_if_name)
 #else
-void tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
+tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
 #endif /* FLEXIWAN_FEATURE */
 {
   tap_inject_main_t * im = tap_inject_get_main ();
