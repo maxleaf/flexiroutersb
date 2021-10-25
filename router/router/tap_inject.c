@@ -505,7 +505,7 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
     {
       if (unformat (input, "sw_if_index %d", &sw_if_index))
         ;
-      else if (unformat (input, "tap %s", &tap_if_name))
+      else if (unformat (input, "tap_name %s", &tap_if_name))
         ;
       else if (unformat (input, "%U",
                          unformat_vnet_sw_interface, vnet_main, &sw_if_index))
@@ -560,7 +560,7 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
 
 VLIB_CLI_COMMAND (show_tap_inject_cmd, static) = {
   .path = "show tap-inject",
-  .short_help = "show tap-inject [<if name> | sw_if_index <sw_if_index> | tap <name in linux>]",
+  .short_help = "show tap-inject [<if name> | sw_if_index <sw_if_index> | tap_name <name in linux>]",
   .function = show_tap_inject,
 };
 
