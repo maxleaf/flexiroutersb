@@ -68,13 +68,21 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
 
   name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
   strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
-  // TUN type is chosen for a new TAP that was not assigned MAC address explicitly.
-  // In VPP the default MAC address for a new interface always starts from 0xde.
-  if (hw->hw_address[0] == 0xde) {
+
+#ifdef FLEXIWAN_FEATURE
+  /* The FlexiWAN peer tunnels utilize loopback interfaces of TUN type toward Linux.
+     We use "ff:ff:ff:ff:{tunnel-id}" MAC address to mark loopbacks that require TUN.
+     The TUN operates on the level 3, so it does not use MAC-s. That is why we can play with it.
+  */
+  if (hw->hw_address[0] == 0xff && hw->hw_address[1] == 0xff &&
+      hw->hw_address[2] == 0xff && hw->hw_address[3] == 0xff)
+  {
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     tap_inject_type_set(sw->sw_if_index, IFF_TUN);
   }
-  else {
+  else
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+  {
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
     tap_inject_type_set(sw->sw_if_index, IFF_TAP);
   }
