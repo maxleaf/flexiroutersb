@@ -168,6 +168,7 @@ tap_inject_tap_disconnect (u32 sw_if_index)
 u8 *
 format_tap_inject_tap_name (u8 * s, va_list * args)
 {
+#ifndef FLEXIWAN_FEATURE
   int fd;
   struct ifreq ifr;
 
@@ -189,4 +190,41 @@ format_tap_inject_tap_name (u8 * s, va_list * args)
   close (fd);
 
   return format (s, "%s", ifr.ifr_name);
+#else  /*#ifndef  FLEXIWAN_FEATURE*/
+
+  u32  tap_if_index = va_arg (*args, u32);
+  u8 * name = tap_inject_tap_fetch_name(tap_if_index);
+  if (name == 0)
+      return 0;
+  s = format (s, "%s", name);
+  vec_free(name);
+  return s;
+
+#endif /*#ifndef  FLEXIWAN_FEATURE #else*/
 }
+
+#ifdef FLEXIWAN_FEATURE
+u8 * tap_inject_tap_fetch_name (u32 tap_if_index)
+{
+  int fd;
+  struct ifreq ifr;
+
+  fd = socket (PF_PACKET, SOCK_RAW, htons (ETH_P_ALL));
+
+  if (fd < 0)
+    return 0;
+
+  memset (&ifr, 0, sizeof (ifr));
+
+  ifr.ifr_ifindex = tap_if_index;
+
+  if (ioctl (fd, SIOCGIFNAME, &ifr) < 0)
+    {
+      close (fd);
+      return 0;
+    }
+  close (fd);
+
+  return format (0, "%s", ifr.ifr_name);
+}
+#endif /*#ifdef FLEXIWAN_FEATURE*/

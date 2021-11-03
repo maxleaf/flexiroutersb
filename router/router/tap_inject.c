@@ -64,9 +64,7 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   vec_validate_init_empty (im->sw_if_index_to_tap_name, sw_if_index, 0);
   im->sw_if_index_to_tap_name[sw_if_index] = tap_if_name;
   if (!im->tap_if_index_by_name)
-    im->tap_if_index_by_name = hash_create_vec ( /* size */ 0,
-						sizeof (tap_if_name[0]),
-						sizeof (uword));
+    im->tap_if_index_by_name = hash_create_string ( /* size */ 0, sizeof (uword));
   hash_set_mem (im->tap_if_index_by_name, tap_if_name, tap_if_index);
 #endif /* FLEXIWAN_FEATURE */
 
@@ -472,6 +470,58 @@ VLIB_CLI_COMMAND (tap_inject_disable_cmd, static) = {
 };
 
 
+#ifdef FLEXIWAN_FEATURE
+/* We hash tap names to provide quick fetch of vpp interface name to tap name map. 
+   This hash might become out of sync with real names in Linux, if user change
+   interface names in shell, e.g. using set-name directive of netplan.
+   The tap_inject_validate_hashes() function validates consistency of the hashes
+   and update them if needed.
+*/
+static void tap_inject_validate_hashes ()
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  typedef struct _stale_tap
+  {
+    u32 sw_if_index;
+    u32 tap_if_index;
+    u8* tap_name;
+    u8* linux_name;
+  } stale_tap;
+
+  stale_tap   tap, *pstale;
+  stale_tap * stale_taps = 0;
+
+
+  hash_foreach (tap.tap_if_index, tap.sw_if_index, im->tap_if_index_to_sw_if_index, {
+      tap.linux_name = tap_inject_tap_fetch_name (tap.tap_if_index);
+      tap.tap_name   = im->sw_if_index_to_tap_name[tap.sw_if_index];
+
+      if (tap.linux_name != 0 && tap.sw_if_index < vec_len(im->sw_if_index_to_tap_name) &&
+          tap.tap_name != 0  &&  strcmp((char*)tap.tap_name, (char*)tap.linux_name) != 0)
+        {
+            vec_add1(stale_taps, tap);
+        }
+      else
+        {
+            vec_free(tap.linux_name);
+        }
+    });
+
+  vec_foreach(pstale, stale_taps) {
+      clib_warning("tap_inject_validate_hashes: sw_if_index=%d/tap_if_index=%d:  %s -> %s",
+          pstale->sw_if_index, pstale->tap_if_index, pstale->tap_name, pstale->linux_name);
+
+      im->sw_if_index_to_tap_name[pstale->sw_if_index] = pstale->linux_name;
+      hash_unset_mem (im->tap_if_index_by_name, pstale->tap_name);
+      hash_set_mem (im->tap_if_index_by_name, pstale->linux_name, pstale->tap_if_index);
+      vec_free(pstale->tap_name);
+  }
+
+  vec_free(stale_taps);
+}
+#endif /*#ifdef FLEXIWAN_FEATURE*/
+
 static clib_error_t *
 show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
                  vlib_cli_command_t * cmd)
@@ -499,7 +549,7 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
       return 0;
     }
 
-#ifdef FLEXIWAN_FIX
+#ifdef FLEXIWAN_FEATURE
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -530,9 +580,24 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
     }
   else if (tap_if_name)
     {
-      p_tap_if_index = hash_get (im->tap_if_index_by_name, tap_if_name);
+      p_tap_if_index = hash_get_mem (im->tap_if_index_by_name, tap_if_name);
       if (PREDICT_FALSE(p_tap_if_index == 0))
-        return (clib_error_return (0, "no tap was found for tap_if_name=%s", tap_if_name));
+        {
+          /*there is a chance the tap_if_name in hash does not match the real
+            name in Linux. That might happen if name that was set by vppsb
+			on tap creation, was changed by user from witin Linux, e.g. using
+			the netplan set-name directive.
+            To handle this case we just go and ensure/update all hashes.
+          */
+          tap_inject_validate_hashes();
+
+          /* if still no luck, return error.
+          */
+          p_tap_if_index = hash_get_mem (im->tap_if_index_by_name, tap_if_name);
+          if (PREDICT_FALSE(p_tap_if_index == 0))
+            return (clib_error_return (0, "no tap was found for tap_if_name=%s", tap_if_name));
+        }
+
       tap_if_index = p_tap_if_index[0];
 
       p_sw_if_index = hash_get (im->tap_if_index_to_sw_if_index, tap_if_index);
@@ -546,7 +611,7 @@ show_tap_inject (vlib_main_t * vm, unformat_input_t * input,
               vnet_get_sw_interface (vnet_main, sw_if_index), tap_if_name);
       return 0;
     }
-#endif /*#ifdef FLEXIWAN_FIX*/
+#endif /*#ifdef FLEXIWAN_FEATURE*/
 
   hash_foreach (k, v, im->tap_if_index_to_sw_if_index, {
     vlib_cli_output (vm, "%U -> %U",
