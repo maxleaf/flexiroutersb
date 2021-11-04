@@ -494,7 +494,8 @@ static void tap_inject_validate_hashes ()
 
 
   hash_foreach (tap.tap_if_index, tap.sw_if_index, im->tap_if_index_to_sw_if_index, {
-      tap.linux_name = tap_inject_tap_fetch_name (tap.tap_if_index);
+
+      tap.linux_name = format(0, "%U", format_tap_inject_tap_name, tap.tap_if_index);
       tap.tap_name   = im->sw_if_index_to_tap_name[tap.sw_if_index];
 
       if (tap.linux_name != 0 && tap.sw_if_index < vec_len(im->sw_if_index_to_tap_name) &&

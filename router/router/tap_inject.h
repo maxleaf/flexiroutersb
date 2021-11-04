@@ -151,8 +151,4 @@ clib_error_t * tap_inject_tap_disconnect (u32 sw_if_index);
 
 u8 * format_tap_inject_tap_name (u8 * s, va_list * args);
 
-#ifdef FLEXIWAN_FEATURE
-u8 * tap_inject_tap_fetch_name (u32 tap_if_index);
-#endif /*#ifdef FLEXIWAN_FEATURE*/
-
 #endif /* _TAP_INJECT_H */
